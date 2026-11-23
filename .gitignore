@@ -1,5 +1,5 @@
 .env
-bin/
-data/
-offline/
+/bin/
+/data/
+/offline/
 *.exe
