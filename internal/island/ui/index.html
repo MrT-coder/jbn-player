@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>jbn-player</title>
+<style>/*__CSS__*/</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+  // A blank window is useless to debug: show script errors on screen instead.
+  window.addEventListener('error', (e) => {
+    const pre = document.createElement('pre');
+    pre.style.cssText = 'position:fixed;inset:0;margin:0;padding:12px;overflow:auto;background:#14141a;color:#ff6b6b;font:12px Consolas,monospace;white-space:pre-wrap;user-select:text;z-index:99';
+    pre.textContent = 'UI error: ' + e.message + '\n' + (e.filename || '') + ':' + e.lineno + ':' + e.colno;
+    document.body.append(pre);
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    const pre = document.createElement('pre');
+    pre.style.cssText = 'position:fixed;left:0;right:0;bottom:0;margin:0;padding:8px 12px;background:#14141a;color:#ff6b6b;font:12px Consolas,monospace;white-space:pre-wrap;z-index:99';
+    pre.textContent = 'Unhandled: ' + (e.reason && e.reason.message || e.reason);
+    document.body.append(pre);
+  });
+</script>
+<script>/*__VENDOR__*/</script>
+<script>/*__APP__*/</script>
+</body>
+</html>
