@@ -66,34 +66,55 @@ before MeTube downloads a song and files it into Navidrome. It is **not** a
 player. Read its `README.md` to see the owner's style: dependency-free Go,
 tiny footprint, built for very weak hardware, plain and well-documented code.
 
-## Proposed stack (a starting recommendation, verify before committing)
+## Stack (decided and measured; see README.md for the numbers)
 
-- **Go**, same as `jbn-music`. Cross-compile/build with a `build.ps1` like the
-  sibling project.
-- **Audio:** the key open question. Candidates to spike quickly:
-  - pure-Go decoders + `oto` (e.g. `gopxl/beep`): no DLLs, but limited formats
-    (no native Opus/AAC) — Navidrome can transcode to MP3/Opus via `stream`.
-  - `libmpv` via DLL: all formats and gapless, but ships a DLL.
-  Pick by measuring idle RAM/CPU and format coverage on this machine.
-- **Tray:** a small Go tray library (e.g. `energye/systray`), verify maintenance.
-- **Island UI:** WebView2 (preinstalled on Windows 11), opened on demand and
-  destroyed on close. Candidates: Wails v2, or a thin `go-webview2` wrapper.
-  Compare idle memory of the tray-only state vs. the open window.
+- **Go, no cgo.** Audio through `libmpv-2.dll` loaded at runtime with
+  `ebitengine/purego` (all formats, gapless, ~0.2% CPU while playing).
+- **Tray:** `energye/systray`. Left click opens the popup, right click the menu.
+- **Popup UI:** WebView2 via `jchv/go-webview2`, Preact + htm vendored (no build
+  step). It runs as its own short-lived process (`jbn-player.exe --island`) that
+  exits when the window closes; the tray process is the only long-lived one and
+  the popup talks to it over a loopback HTTP + token IPC (`internal/ipc`).
 - Keep dependencies few. Prefer the standard library where reasonable.
 
-## First steps for the agent
+## Where we left off (updated 2026-11-23)
 
-1. Run `mem_current_project` and `mem_search` for "reproductor subsonic" /
-   "jbn-player" in Engram: the scope decision is saved there
-   (topic `jbn-player/scope-v1`).
-2. Check the Go version (`go version`) and that WebView2 is present.
-3. Do a **short audio spike** (decode + play a file from Navidrome) and a
-   **tray spike**; report idle RAM/CPU of each and recommend the stack.
-4. Only then scaffold the module and propose the package layout
-   (`cmd/`, `internal/subsonic`, `internal/player`, `internal/offline`,
-   `internal/tray`, `internal/ui`).
-5. Ask the owner for the Navidrome URL/user/password (never commit them; use a
-   `.env`/config file listed in `.gitignore`, plus an `env.example`).
+**Working copy: `C:\workspace\JBMLLNUBE\jbn-player`.** Origin is the private repo
+`MrT-coder/jbn-player` (ssh). The old copy on `E:` is stale: that USB drive logs
+disk controller errors, do not work from it.
+
+Done: tray popup (opens in the bottom-right corner via a WH_CBT creation hook, no
+jump), one play queue (play next, enqueue, shuffle, drag to reorder), volume /
+output device / equalizer, accent + background tone, album browse and search,
+all-songs list, playlists, library sync, server setup (DPAPI-encrypted
+passwords), and **offline copies**: per song, album or playlist; bulk "Download
+all" and "Select" mode on the Songs tab (only fetches what is not stored yet);
+Stop button; custom offline folder (Settings > Offline); playback prefers the
+local file and falls back to streaming; a batch aborts after 5 consecutive
+failures.
+
+Not verified yet (ask the owner to test): playing a downloaded song with the
+server OFF, and the visual result of Select mode.
+
+Ideas, nothing decided: re-sync an offline playlist when it changes on the
+server, a storage cap, moving files when the offline folder changes (today the
+old files stay where they are and each folder keeps its own index).
+
+How to run: copy `libmpv-2.dll` into `bin/` (gitignored), add a server from the
+Settings screen or copy a `.env` (see `env.example`), run `./build.ps1`, start
+`bin/jbn-player.exe`. Settings live in `%APPDATA%\jbn-player`, offline songs in
+`%LOCALAPPDATA%\jbn-player\offline\<server id>` unless a custom folder is set.
+
+Gotchas:
+- `.gitignore` rules for `bin/`, `data/`, `offline/` are anchored to the root on
+  purpose: an unanchored `offline/` once hid `internal/offline`.
+- `go test -race` needs a C compiler that is not installed; run plain `go test ./...`.
+- When changing the popup UI you cannot click it from here unless the Claude in
+  Chrome extension is connected; headless Edge (`--dump-dom` with a script that
+  writes measurements into the DOM) works to measure layout.
+- Engram: the decisions of this project were saved under the project name
+  `jbn-server` (topic keys `jbn-player/*`), not `jbn-player`. Search there:
+  `mem_search` with `project: "jbn-server"` and query `jbn-player`.
 
 ## Working agreements
 
