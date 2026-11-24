@@ -32,10 +32,14 @@ or a browser tab you have to keep open. jbn-player takes a different approach:
 - Seek bar in Now playing and a progress line on the mini player
 - Offline copies per song, album or playlist, with "Download all" and a select
   mode; only fetches what is not stored yet; custom offline folder
+- Add music from YouTube through [songkey](https://github.com/MrT-coder/songkey):
+  paste a link in Playlists and follow it until the song reaches your library
+  playlist (set the songkey URL and API token in Settings; the token is stored
+  encrypted and never reaches the window's web page)
 - Volume, output device selection and equalizer
 - Accent color and background tone
 - Multiple formats and gapless playback (through libmpv)
-- Passwords are stored encrypted with Windows DPAPI
+- Passwords and the songkey token are stored encrypted with Windows DPAPI
 
 ## Install
 

@@ -111,6 +111,112 @@ async function offDo(op, req) {
 const MB = (b) => (b >= 1e9 ? (b / 1e9).toFixed(1) + ' GB' : Math.round(b / 1e6) + ' MB');
 const offItems = (ts) => ts.map((t) => ({ id: t.id, title: t.title }));
 
+// ---------- songkey: YouTube links downloaded into the library ----------
+// The Go side talks to songkey (the token never reaches this page). Followed
+// jobs are polled every few seconds while one is still in progress.
+
+const SK = { cfg: null, jobs: [], rev: 0, subs: new Set(), timer: 0, onFiled: null };
+const skNotify = () => SK.subs.forEach((f) => f());
+function useSk() {
+  const [, set] = useState(0);
+  useEffect(() => { const f = () => set((n) => n + 1); SK.subs.add(f); return () => SK.subs.delete(f); }, []);
+  return SK;
+}
+const SK_DONE = new Set(['filed', 'failed', 'duplicate']);
+const SK_LABEL = { received: 'Checking', queued: 'Downloading', downloaded: 'Adding to playlist', failed: 'Failed', duplicate: 'Already in library' };
+function skTake(r) {
+  SK.jobs = r.jobs || [];
+  if (r.filed && r.filed.length) {
+    if (r.refreshed) SK.rev++; // lists showing the library re-read it
+    if (SK.onFiled) SK.onFiled(r.filed);
+  }
+  skNotify();
+  clearTimeout(SK.timer);
+  if (SK.jobs.some((j) => !SK_DONE.has(j.state))) SK.timer = setTimeout(skPoll, 4000);
+}
+async function skPoll() { skTake(await window.songkeyJobs()); }
+async function skLoad() {
+  SK.cfg = await window.getSongkey();
+  skNotify();
+  if (SK.cfg.configured) skPoll();
+}
+
+function SongkeyAdd({ toast }) {
+  const sk = useSk();
+  const [link, setLink] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [reply, setReply] = useState(null); // { kind, text }
+  if (!sk.cfg || !sk.cfg.configured) return '';
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!link.trim() || busy) return;
+    setBusy(true);
+    const r = await window.songkeyAdd(link.trim());
+    setBusy(false);
+    if (r.error) return setReply({ kind: 'err', text: r.error });
+    setLink('');
+    setReply({ kind: r.result === 'already_have' ? 'info' : 'ok', text: r.message });
+    if (r.job) skPoll();
+  };
+  return html`<div class="card sk">
+    <form class="row" onSubmit=${submit}>
+      <input class="grow" type="text" placeholder="Paste a YouTube link (song or playlist)" spellcheck="false" value=${link}
+        aria-label="YouTube link" onInput=${(e) => setLink(e.target.value)} />
+      <button type="submit" class="primary" disabled=${busy || !link.trim()}>${busy ? 'Sending…' : 'Add'}</button>
+    </form>
+    ${reply ? html`<div class=${'skmsg ' + reply.kind}>${reply.text}<button class="icon ghost sm" title="Hide" aria-label="Hide" onClick=${() => setReply(null)}><${Icon} name="close" size=${13} /></button></div>` : ''}
+    ${sk.jobs.length ? html`<div class="skjobs">${sk.jobs.map((j) => html`
+      <div class="skjob" key=${j.id}>
+        <div class="grow"><div class="row-title">${j.title || j.id}</div>
+          <div class="sub">${[j.artist, j.reason].filter(Boolean).join(' · ')}</div></div>
+        <span class=${'skstate ' + j.state}>${SK_DONE.has(j.state) ? '' : html`<span class="ico spin"><${Icon} name="sync" size=${12} /></span>`}${SK_LABEL[j.state] || j.state}</span>
+        ${SK_DONE.has(j.state) ? html`<${IconBtn} name="close" title="Dismiss" cls="sm" size=${14} onClick=${async () => skTake(await window.songkeyDismiss(j.id))} />` : ''}
+      </div>`)}</div>` : ''}
+  </div>`;
+}
+
+function SongkeySettings({ toast }) {
+  const sk = useSk();
+  const cfg = sk.cfg || { url: '', hasToken: false, configured: false };
+  const [url, setUrl] = useState(cfg.url);
+  const [token, setToken] = useState('');
+  const [status, setStatus] = useState({ kind: '', text: '' });
+  const [busy, setBusy] = useState(false);
+  const failedOnce = useRef(false);
+  useEffect(() => { setUrl(cfg.url); }, [cfg.url]);
+  const save = async (e, clear) => {
+    e.preventDefault();
+    setBusy(true);
+    setStatus({ kind: 'busy', text: clear ? 'Removing…' : 'Connecting…' });
+    const r = await window.saveSongkey(clear ? { url: '', token: '' } : { url, token, force: failedOnce.current });
+    setBusy(false);
+    if (r.error) { // an unreachable songkey must not block saving: pressing Save again keeps it
+      failedOnce.current = true;
+      return setStatus({ kind: 'err', text: r.error + ' — press Save again to keep it anyway' });
+    }
+    failedOnce.current = false;
+    setToken('');
+    setStatus({ kind: 'ok', text: clear ? 'Removed' : 'Connected' });
+    skLoad();
+    if (!clear) toast('songkey saved');
+  };
+  const edit = (set) => (e) => { failedOnce.current = false; set(e.target.value); };
+  return html`<div class="card" style="margin-bottom:16px">
+    <h2 style="margin-top:0">songkey</h2>
+    <div class="sub" style="white-space:normal">Paste YouTube links in Playlists: songkey downloads the new songs into your library playlist.</div>
+    <form autocomplete="off" novalidate onSubmit=${(e) => save(e, false)} style="margin-top:8px">
+      <label>songkey URL<input placeholder="https://songkey.example.com" spellcheck="false" value=${url} onInput=${edit(setUrl)} /></label>
+      <label>API token<input type="password" placeholder=${cfg.hasToken ? 'Unchanged' : ''} value=${token} onInput=${edit(setToken)} /></label>
+      <div class=${'status ' + status.kind} role="status" aria-live="polite">${status.text ? html`<span class="dot"></span>${status.text}` : ''}</div>
+      <div class="row">
+        ${cfg.configured ? html`<button type="button" class="ghost danger" disabled=${busy} onClick=${(e) => save(e, true)}>Remove</button>` : ''}
+        <span class="grow"></span>
+        <button type="submit" class="primary" disabled=${busy || !url.trim()}>Save</button>
+      </div>
+    </form>
+  </div>`;
+}
+
 // ---------- Shared: track rows and track lists ----------
 
 // One big click target: clicking the row plays the song inside the current
@@ -142,9 +248,9 @@ function TrackRow({ t, n, tracks, start, act, toast, select }) {
 }
 
 // An album or a playlist: header + Play / Shuffle + secondary icons + tracks.
-function TracksView({ head, load, onBack, act, toast }) {
+function TracksView({ head, load, onBack, act, toast, rev = 0 }) {
   const [res, setRes] = useState(null);
-  useEffect(() => { load().then(setRes); }, []);
+  useEffect(() => { load().then(setRes); }, [rev]);
   const tracks = res ? res.items : [];
   const none = !tracks.length;
   const all = async (op, msg) => { if (await act(op, { tracks })) toast(msg); };
@@ -286,6 +392,7 @@ function Songs({ act, toast, sync, playAll, goSettings }) {
   const [selecting, setSelecting] = useState(false);
   const [sel, setSel] = useState(new Map()); // id -> track, for "Download selected"
   const [armed, setArmed] = useState(false);
+  const sk = useSk(); // songs songkey filed show up without a full sync
 
   const select = selecting ? {
     checked: (t) => sel.has(t.id),
@@ -325,7 +432,7 @@ function Songs({ act, toast, sync, playAll, goSettings }) {
   useEffect(() => {
     const id = setTimeout(() => load(true), q ? 250 : 0);
     return () => clearTimeout(id);
-  }, [q, sync.info && sync.info.at]);
+  }, [q, sync.info && sync.info.at, sk.rev]);
 
   // Infinite scroll: load the next page when the end of the list is visible.
   useEffect(() => {
@@ -372,7 +479,8 @@ function Songs({ act, toast, sync, playAll, goSettings }) {
 function Playlists({ act, toast, sync }) {
   const [res, setRes] = useState(null);
   const [open, setOpen] = useState(null);
-  useEffect(() => { window.playlists().then(setRes); }, [sync.info && sync.info.at]);
+  const sk = useSk(); // a song songkey filed changes the playlist: re-read
+  useEffect(() => { window.playlists().then(setRes); }, [sync.info && sync.info.at, sk.rev]);
 
   const playPlaylist = async (e, p) => {
     e.stopPropagation();
@@ -383,10 +491,11 @@ function Playlists({ act, toast, sync }) {
 
   if (open) {
     return html`<${TracksView} head=${{ title: open.name, sub: open.count + ' songs', cover: open.cover }}
-      load=${() => window.playlistTracks(open.id)} onBack=${() => setOpen(null)} act=${act} toast=${toast} />`;
+      load=${() => window.playlistTracks(open.id)} onBack=${() => setOpen(null)} act=${act} toast=${toast} rev=${sk.rev} />`;
   }
   return html`<main>
     <${SyncBar} sync=${sync} />
+    <${SongkeyAdd} toast=${toast} />
     ${res && res.error ? html`<div class="banner">${res.error}</div>` : ''}
     ${res && !res.synced && !res.error ? html`<${NeedsSync} sync=${sync} />` : ''}
     ${res && res.synced && !res.items.length ? html`<div class="empty">This server has no playlists.</div>` : ''}
@@ -685,6 +794,7 @@ function Settings({ onChanged, toast, setVolume, volume, ap, setAp }) {
     <${AppearanceSettings} ap=${ap} setAp=${setAp} />
     <${AudioSettings} toast=${toast} setVolume=${setVolume} volume=${volume} />
     <${OfflineSettings} toast=${toast} />
+    <${SongkeySettings} toast=${toast} />
     <div class="row between" style="margin-bottom:12px"><h2 style="margin:0">Servers</h2><button class="primary" onClick=${() => setForm({})}>+ Add server</button></div>
     <ul class="servers">${list.map((s, i) => html`
       <li class=${'server' + (s.active ? ' active' : '')} key=${s.id} style=${{ animationDelay: i * 40 + 'ms' }}>
@@ -770,6 +880,12 @@ function App() {
   };
 
   useEffect(() => { window.syncInfo().then(setInfo); offRefresh(); }, [libKey]);
+  // songkey: follow the jobs while the window is open; say when a song reached the playlist.
+  useEffect(() => {
+    SK.onFiled = (names) => toast(names.length === 1 ? 'Added to the playlist: ' + names[0] : names.length + ' songs added to the playlist');
+    skLoad();
+    return () => { SK.onFiled = null; clearTimeout(SK.timer); };
+  }, [libKey]);
   const runSync = async () => {
     if (syncing) return;
     setSyncing(true);

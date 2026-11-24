@@ -30,6 +30,8 @@ type service struct {
 	libServer string // server ID the in-memory cache belongs to
 
 	cached    *subsonic.Client // active server's client, see client()
+
+	skJobsMu sync.Mutex // the followed songkey jobs (songkey.go)
 	cachedKey string
 }
 

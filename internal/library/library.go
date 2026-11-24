@@ -130,6 +130,43 @@ func Sync(ctx context.Context, src Source) (*Cache, error) {
 	return c, nil
 }
 
+// RefreshPlaylist re-reads one playlist from the server (a few songs were
+// added to it) and returns an updated copy; c itself is left untouched, since
+// other readers may be using it. Songs new to the copy are added to the
+// library list. A playlist the copy does not know yet is added as name.
+func (c *Cache) RefreshPlaylist(ctx context.Context, src Source, id, name string) (*Cache, error) {
+	entries, err := src.PlaylistSongs(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("playlist %q: %w", name, err)
+	}
+	n := &Cache{Version: c.Version, SyncedAt: c.SyncedAt,
+		Songs:     append([]Song(nil), c.Songs...),
+		Playlists: append([]Playlist(nil), c.Playlists...)}
+	pl := Playlist{ID: id, Name: name, SongIDs: make([]string, 0, len(entries))}
+	added := map[string]bool{}
+	for _, e := range entries {
+		if _, ok := c.byID[e.ID]; !ok && !added[e.ID] { // a playlist may list a song twice
+			added[e.ID] = true
+			n.Songs = append(n.Songs, fromSubsonic(e))
+		}
+		pl.SongIDs = append(pl.SongIDs, e.ID)
+	}
+	found := false
+	for i, p := range n.Playlists {
+		if p.ID == id {
+			pl.Name = p.Name // keep the name the full sync saw
+			n.Playlists[i] = pl
+			found = true
+			break
+		}
+	}
+	if !found {
+		n.Playlists = append(n.Playlists, pl)
+	}
+	n.index()
+	return n, nil
+}
+
 // Load reads a cache file. A missing file is (nil, nil): not synced yet.
 func Load(path string) (*Cache, error) {
 	raw, err := os.ReadFile(path)

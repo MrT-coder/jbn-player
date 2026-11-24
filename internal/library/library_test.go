@@ -141,3 +141,39 @@ func TestSaveLoadRoundTripAndMissingFile(t *testing.T) {
 		t.Fatal("SyncedAt lost")
 	}
 }
+
+func TestRefreshPlaylistAddsNewSongsWithoutTouchingTheOldCopy(t *testing.T) {
+	src := &fakeSource{
+		songs:     []subsonic.Song{song("a", "Alpha", "X")},
+		playlists: []subsonic.Playlist{{ID: "p1", Name: "DETODO"}, {ID: "p2", Name: "Other"}},
+		entries:   map[string][]subsonic.Song{"p1": {song("a", "Alpha", "X")}, "p2": {song("a", "Alpha", "X")}},
+	}
+	c, err := Sync(context.Background(), src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src.entries["p1"] = []subsonic.Song{song("a", "Alpha", "X"), song("n", "New one", "Y")}
+	n, err := c.RefreshPlaylist(context.Background(), src, "p1", "DETODO")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := n.PlaylistSongs("p1")
+	if !ok || len(got) != 2 || got[1].ID != "n" {
+		t.Fatalf("refreshed playlist: %+v", got)
+	}
+	if found, total := n.Find("new one", 0, 10); total != 1 || found[0].Artist != "Y" {
+		t.Fatal("the new song must be searchable")
+	}
+	if other, _ := n.PlaylistSongs("p2"); len(other) != 1 || len(n.Playlists) != 2 {
+		t.Fatal("other playlists stay as they were")
+	}
+	if old, _ := c.PlaylistSongs("p1"); len(old) != 1 || len(c.Songs) != 1 {
+		t.Fatal("the original cache must not change (readers may be using it)")
+	}
+	// A playlist the copy never saw is added with the given name.
+	src.entries["p3"] = []subsonic.Song{song("a", "Alpha", "X")}
+	n2, err := n.RefreshPlaylist(context.Background(), src, "p3", "Fresh")
+	if err != nil || len(n2.Playlists) != 3 || n2.Playlists[2].Name != "Fresh" {
+		t.Fatalf("new playlist: %+v %v", n2.Playlists, err)
+	}
+}

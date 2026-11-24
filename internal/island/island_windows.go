@@ -123,6 +123,11 @@ func Run() error {
 		"offlineIDs":     svc.OfflineIDs,
 		"offlineDo":      svc.OfflineDo,
 		"offlineAll":     svc.OfflineAll,
+		"getSongkey":     svc.GetSongkey,
+		"saveSongkey":    svc.SaveSongkey,
+		"songkeyAdd":     svc.SongkeyAdd,
+		"songkeyJobs":    svc.SongkeyJobs,
+		"songkeyDismiss": svc.SongkeyDismiss,
 	} {
 		if err := w.Bind(name, fn); err != nil {
 			return err
