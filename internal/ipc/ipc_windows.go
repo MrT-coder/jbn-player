@@ -43,6 +43,8 @@ type Controller interface {
 	Play(ts []player.Track, start int) error
 	Enqueue(ts []player.Track) error
 	PlayNext(ts []player.Track) error
+	PlayNow(ts []player.Track, start int) error
+	Seek(pos float64) error
 	Jump(i int) error
 	Remove(i int) error
 	Move(from, to int) error
@@ -67,17 +69,18 @@ type Offline interface {
 
 // Request is the JSON body of the mutating calls.
 type Request struct {
-	Tracks []player.Track `json:"tracks,omitempty"`
-	Start  int            `json:"start,omitempty"`
-	Index  int            `json:"index,omitempty"`
-	On     bool           `json:"on,omitempty"`
-	From   int            `json:"from,omitempty"`  // move: current position
-	To     int            `json:"to,omitempty"`    // move: new position
-	Level  int            `json:"level,omitempty"` // volume 0-100
-	Name   string         `json:"name,omitempty"`  // audio device
-	EQ     *settings.EQ   `json:"eq,omitempty"`
-	Items  []offline.Item `json:"items,omitempty"` // offline: songs to download
-	IDs    []string       `json:"ids,omitempty"`   // offline: songs to delete locally
+	Tracks   []player.Track `json:"tracks,omitempty"`
+	Start    int            `json:"start,omitempty"`
+	Index    int            `json:"index,omitempty"`
+	On       bool           `json:"on,omitempty"`
+	From     int            `json:"from,omitempty"`  // move: current position
+	To       int            `json:"to,omitempty"`    // move: new position
+	Level    int            `json:"level,omitempty"` // volume 0-100
+	Name     string         `json:"name,omitempty"`  // audio device
+	EQ       *settings.EQ   `json:"eq,omitempty"`
+	Items    []offline.Item `json:"items,omitempty"`    // offline: songs to download
+	IDs      []string       `json:"ids,omitempty"`      // offline: songs to delete locally
+	Position float64        `json:"position,omitempty"` // seek: seconds into the current track
 }
 
 type endpointFile struct {
@@ -187,6 +190,8 @@ func Serve(path string, c Controller) (stop func(), err error) {
 	post("play", func(r Request) error { return c.Play(r.Tracks, r.Start) })
 	post("enqueue", func(r Request) error { return c.Enqueue(r.Tracks) })
 	post("playnext", func(r Request) error { return c.PlayNext(r.Tracks) })
+	post("playnow", func(r Request) error { return c.PlayNow(r.Tracks, r.Start) })
+	post("seek", func(r Request) error { return c.Seek(r.Position) })
 
 	// Offline copies: the downloads run in this (long-lived) process, because
 	// the window that asks for them is destroyed when it closes.
@@ -384,7 +389,7 @@ func (c *Client) audio(method, op string, body *Request) (player.AudioInfo, erro
 }
 
 // Do runs a mutating op (toggle, next, prev, clear, shuffle, jump, remove,
-// play, enqueue, playnext) and returns the new state.
+// play, enqueue, playnext, playnow, seek) and returns the new state.
 func (c *Client) Do(op string, r Request) (player.State, error) {
 	return c.do(http.MethodPost, op, &r)
 }

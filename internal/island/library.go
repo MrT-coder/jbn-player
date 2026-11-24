@@ -225,7 +225,7 @@ func (s *service) PlayerQueue(from, n int) queueResult {
 }
 
 // PlayerDo sends a command (toggle, next, prev, clear, shuffle, jump, remove,
-// play, enqueue, playnext) to the player and returns the new state.
+// play, enqueue, playnext, playnow, seek) to the player and returns the new state.
 func (s *service) PlayerDo(op string, req ipc.Request) stateResult {
 	cl, err := ipc.Dial(s.ipcPath)
 	if err != nil {

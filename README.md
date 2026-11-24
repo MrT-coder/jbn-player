@@ -27,7 +27,9 @@ or a browser tab you have to keep open. jbn-player takes a different approach:
 ## Features
 
 - Browse albums, search, all-songs list and playlists
-- One play queue: play next, add to queue, shuffle, drag to reorder
+- One play queue: play next, add to queue, shuffle, drag to reorder; clicking a
+  song plays it inside the queue you already have instead of replacing it
+- Seek bar in Now playing and a progress line on the mini player
 - Offline copies per song, album or playlist, with "Download all" and a select
   mode; only fetches what is not stored yet; custom offline folder
 - Volume, output device selection and equalizer

@@ -88,6 +88,25 @@ func (q *queue) insertNext(ts []Track) int {
 	return at
 }
 
+// playNow makes t the current track without dropping the rest of the queue:
+// it goes right after the current one, so the queue carries on as it was
+// arranged once t ends. A t already queued is moved, never duplicated. It
+// reports whether t must be loaded (false when t is already playing).
+func (q *queue) playNow(t Track) bool {
+	if cur, ok := q.current(); ok && cur.ID == t.ID {
+		return false
+	}
+	for i, x := range q.tracks {
+		if x.ID == t.ID {
+			q.remove(i) // never the current one: checked above
+			break
+		}
+	}
+	at := q.insertNext([]Track{t})
+	q.idx = at
+	return true
+}
+
 // appendTracks adds ts at the end ("add to queue") and returns the index of the first one.
 func (q *queue) appendTracks(ts []Track) int {
 	q.version++

@@ -241,3 +241,45 @@ func TestExplicitStartIsAlwaysRespectedEvenWithShuffle(t *testing.T) {
 		}
 	}
 }
+
+func TestPlayNowKeepsTheQueueAndContinuesWithIt(t *testing.T) {
+	var q queue
+	q.set(mk("abcd"), 1) // playing b
+	if !q.playNow(Track{ID: "x"}) {
+		t.Fatal("a new track must be loaded")
+	}
+	if ids(q.tracks) != "abxcd" || q.idx != 2 {
+		t.Fatalf("queue=%s idx=%d", ids(q.tracks), q.idx)
+	}
+	if tr, _ := q.next(); tr.ID != "c" {
+		t.Fatalf("after x the queue goes on with c, got %s", tr.ID)
+	}
+}
+
+func TestPlayNowMovesAQueuedTrackInsteadOfDuplicatingIt(t *testing.T) {
+	var q queue
+	q.set(mk("abcde"), 1) // playing b
+	q.playNow(Track{ID: "d"})
+	if ids(q.tracks) != "abdce" || q.idx != 2 {
+		t.Fatalf("upcoming: queue=%s idx=%d", ids(q.tracks), q.idx)
+	}
+	q.playNow(Track{ID: "a"}) // already played: it comes back, history shrinks
+	if ids(q.tracks) != "bdace" || q.idx != 2 {
+		t.Fatalf("history: queue=%s idx=%d", ids(q.tracks), q.idx)
+	}
+	v := q.version
+	if q.playNow(Track{ID: "a"}) || q.version != v {
+		t.Fatal("the current track must keep playing untouched")
+	}
+}
+
+func TestPlayNowIsNotReshuffled(t *testing.T) {
+	var q queue
+	q.set(mk("abc"), 0)
+	q.setShuffle(true)
+	up := ids(q.tracks[1:])
+	q.playNow(Track{ID: "x"})
+	if ids(q.tracks) != "ax"+up {
+		t.Fatalf("queue=%s, upcoming order must survive", ids(q.tracks))
+	}
+}

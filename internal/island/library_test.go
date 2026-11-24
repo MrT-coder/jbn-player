@@ -107,6 +107,8 @@ func (c *ctl) Play(ts []player.Track, start int) error {
 }
 func (c *ctl) Enqueue(ts []player.Track) error  { c.queue = append(c.queue, ts...); return nil }
 func (c *ctl) PlayNext(ts []player.Track) error { return nil }
+func (c *ctl) PlayNow(ts []player.Track, start int) error { return nil }
+func (c *ctl) Seek(pos float64) error { return nil }
 func (c *ctl) Jump(i int) error                 { return nil }
 func (c *ctl) Remove(i int) error               { return nil }
 func (c *ctl) Move(from, to int) error          { return nil }

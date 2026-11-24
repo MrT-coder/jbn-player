@@ -226,3 +226,33 @@ func TestAudioSettingsRoundTrip(t *testing.T) {
 		t.Fatalf("read back: %+v %v", got, err)
 	}
 }
+
+func (f *fake) PlayNow(ts []player.Track, start int) error {
+	f.calls = append(f.calls, "playnow:"+ts[start].ID)
+	return nil
+}
+func (f *fake) Seek(pos float64) error {
+	if pos > 1000 {
+		return errors.New("nothing is playing")
+	}
+	f.st.Position = pos
+	f.calls = append(f.calls, "seek")
+	return nil
+}
+
+func TestPlayNowAndSeekGoThrough(t *testing.T) {
+	c, f, _ := start(t)
+	if _, err := c.Do("playnow", Request{Tracks: []player.Track{{ID: "a"}, {ID: "b"}}, Start: 1}); err != nil {
+		t.Fatal(err)
+	}
+	st, err := c.Do("seek", Request{Position: 42.5})
+	if err != nil || st.Position != 42.5 {
+		t.Fatalf("seek: %+v %v", st, err)
+	}
+	if _, err := c.Do("seek", Request{Position: 5000}); err == nil || !strings.Contains(err.Error(), "nothing is playing") {
+		t.Fatalf("seek error: %v", err)
+	}
+	if got := strings.Join(f.calls, ","); got != "playnow:b,seek" {
+		t.Fatalf("calls = %s", got)
+	}
+}

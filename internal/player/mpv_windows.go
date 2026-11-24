@@ -224,6 +224,38 @@ func (p *Player) Play(ts []Track, start int) error {
 	return p.playCurrent()
 }
 
+// PlayNow plays ts[start] inside the current queue (see queue.playNow), so
+// what was queued keeps playing after it. With nothing queued yet, ts becomes
+// the queue (like Play), so a click on a list still gives something to follow.
+func (p *Player) PlayNow(ts []Track, start int) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if start < 0 || start >= len(ts) {
+		return errors.New("no such track")
+	}
+	if _, had := p.q.current(); !had {
+		p.q.set(ts, start)
+		return p.playCurrent()
+	}
+	if !p.q.playNow(ts[start]) {
+		return p.cmd("set", "pause", "no") // already the current track: just make sure it plays
+	}
+	return p.playCurrent()
+}
+
+// Seek moves the current track to pos seconds.
+func (p *Player) Seek(pos float64) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.idle() {
+		return errors.New("nothing is playing")
+	}
+	if pos < 0 {
+		pos = 0
+	}
+	return p.cmd("seek", strconv.FormatFloat(pos, 'f', 2, 64), "absolute")
+}
+
 // add inserts tracks with ins (insertNext or appendTracks). If nothing is
 // playing (empty queue or finished), the first added track starts right away.
 func (p *Player) add(ts []Track, ins func([]Track) int) error {
