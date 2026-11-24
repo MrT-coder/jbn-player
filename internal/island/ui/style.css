@@ -97,8 +97,6 @@ nav button.active { color: var(--accent-hover); box-shadow: inset 0 2px 0 var(--
 /* now playing */
 .np-title { font-size: 17px; font-weight: 600; text-align: center; }
 .np-sub { color: var(--muted); text-align: center; margin-bottom: 14px; }
-.bar { height: 4px; background: var(--card-hover); border-radius: 4px; overflow: hidden; margin: 8px 0 4px; }
-.bar .fill { height: 100%; background: var(--accent); transition: width 1s linear; }
 .times { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
 .controls { display: flex; justify-content: center; align-items: center; gap: 14px; margin: 14px 0 6px; }
 
@@ -211,3 +209,12 @@ button.icon.on { color: var(--accent-hover); }
 
 /* Select mode: a checkbox where the track number sits. */
 .track .pick { width: 16px; height: 16px; flex: none; margin: 0 3px; accent-color: var(--accent); pointer-events: none; }
+
+/* search stays pinned at the top of the list while it scrolls */
+.search { position: sticky; top: -6px; z-index: 3; background: var(--bg); padding: 6px 0; margin-top: -6px; }
+
+/* seek slider (Playing) and the thin progress line on the mini player */
+.seek { margin: 10px 0 2px; }
+.mini { position: relative; }
+.mini .prog { position: absolute; left: 0; right: 0; top: -1px; height: 2px; background: var(--line); pointer-events: none; }
+.mini .prog div { height: 100%; background: var(--accent); transition: width 1s linear; }

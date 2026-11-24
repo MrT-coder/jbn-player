@@ -113,13 +113,15 @@ const offItems = (ts) => ts.map((t) => ({ id: t.id, title: t.title }));
 
 // ---------- Shared: track rows and track lists ----------
 
-// One big click target: clicking the row plays from here. Play next / add to
-// queue / offline are icons that appear on hover; the offline mark stays visible.
+// One big click target: clicking the row plays the song inside the current
+// queue (it keeps what was queued and carries on with it afterwards; with an
+// empty queue the list becomes the queue). Play next / add to queue / offline
+// are icons that appear on hover; the offline mark stays visible.
 function TrackRow({ t, n, tracks, start, act, toast, select }) {
   const off = useOff();
   const isOff = off.ids.has(t.id);
   // In select mode a click ticks the song instead of playing it.
-  const play = () => (select ? select.toggle(t) : act('play', { tracks, start }));
+  const play = () => (select ? select.toggle(t) : act('playnow', { tracks, start }));
   const add = async (e, op, msg) => { e.stopPropagation(); if (await act(op, { tracks: [t] })) toast(msg); };
   const toggleOff = async (e) => {
     e.stopPropagation();
@@ -408,6 +410,27 @@ function Volume({ value, onChange }) {
   </div>`;
 }
 
+// ---------- Seek: drag to move inside the song ----------
+
+// While dragging, the slider shows the dragged spot (the 1 s poll must not
+// pull it back); after release it holds that spot until mpv has caught up.
+function Seek({ position, duration, act }) {
+  const [hold, setHold] = useState(null);
+  const timer = useRef(0);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const v = hold !== null ? hold : position;
+  const seek = (pos) => {
+    setHold(pos);
+    clearTimeout(timer.current);
+    act('seek', { position: pos }).finally(() => { timer.current = setTimeout(() => setHold(null), 1200); });
+  };
+  return html`
+    <input type="range" class="seek" min="0" max=${Math.max(1, Math.floor(duration))} step="1" value=${Math.floor(v)}
+      disabled=${!(duration > 0)} aria-label="Seek" aria-valuetext=${fmt(v)}
+      onInput=${(e) => { clearTimeout(timer.current); setHold(+e.target.value); }} onChange=${(e) => seek(+e.target.value)} />
+    <div class="times"><span>${fmt(v)}</span><span>${fmt(duration)}</span></div>`;
+}
+
 // ---------- Now playing + the single queue ----------
 
 const QUEUE_WINDOW = 150;
@@ -429,15 +452,13 @@ function NowPlaying({ ps, act, goLibrary, setVolume }) {
   if (!cur) {
     return html`<main><div class="empty">Nothing playing yet.<br /><button class="primary" onClick=${goLibrary}>Browse the library</button></div></main>`;
   }
-  const pct = ps.duration > 0 ? Math.min(100, (ps.position / ps.duration) * 100) : 0;
   const upcoming = ps.queueLen - ps.index - 1;
   const hidden = page.total - (page.from + page.items.length);
   return html`<main>
     ${ps.cover ? html`<img class="cover xl" src=${ps.cover} alt="" />` : html`<div class="cover xl"><${Icon} name="note" size=${64} /></div>`}
     <div class="np-title">${cur.title}</div>
     <div class="np-sub">${cur.artist}${cur.album ? ' · ' + cur.album : ''}</div>
-    <div class="bar"><div class="fill" style=${{ width: pct + '%' }}></div></div>
-    <div class="times"><span>${fmt(ps.position)}</span><span>${fmt(ps.duration || cur.duration)}</span></div>
+    <${Seek} position=${ps.position} duration=${ps.duration || cur.duration} act=${act} />
     <div class="controls">
       <button class=${'icon' + (ps.shuffle ? ' on' : '')} title=${ps.shuffle ? 'Shuffle: on' : 'Shuffle: off'} aria-pressed=${ps.shuffle} onClick=${() => act('shuffle', { on: !ps.shuffle })}><${Icon} name="shuffle" /></button>
       <button class="icon" title="Previous" onClick=${() => act('prev')}><${Icon} name="prev" size=${26} /></button>
@@ -473,7 +494,10 @@ function NowPlaying({ ps, act, goLibrary, setVolume }) {
 function MiniPlayer({ ps, act, open }) {
   const cur = ps.current;
   if (!cur) return '';
+  const dur = ps.duration || cur.duration;
+  const pct = dur > 0 ? Math.min(100, (ps.position / dur) * 100) : 0;
   return html`<div class="mini" onClick=${open}>
+    <div class="prog" aria-hidden="true"><div style=${{ width: pct + '%' }}></div></div>
     <${Cover} src=${cur.cover} cls="s" />
     <div class="t"><div class="title row-title">${cur.title}</div><div class="sub">${cur.artist}</div></div>
     <button class="icon" title=${ps.playing ? 'Pause' : 'Play'} onClick=${(e) => { e.stopPropagation(); act('toggle'); }}><${Icon} name=${ps.playing ? 'pause' : 'play'} /></button>
