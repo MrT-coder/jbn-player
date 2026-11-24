@@ -3,3 +3,12 @@
 /data/
 /offline/
 *.exe
+
+# Release zips built by package.ps1
+/dist/
+
+# Local agent/tooling files
+.atl/
+.claude/
+odd/
+CLAUDE.md
