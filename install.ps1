@@ -26,7 +26,9 @@ try {
     $app = Get-Asset $repo "jbn-player-windows-x64*.zip"
     $zip = Join-Path $tmp $app.name
     Invoke-WebRequest $app.browser_download_url -OutFile $zip -Headers $headers
-    Expand-Archive $zip -DestinationPath $dest -Force
+    # tar.exe (bundled with Windows 10/11) is more reliable than Expand-Archive on PS 5.1.
+    & "$env:SystemRoot\System32\tar.exe" -xf $zip -C $dest
+    if ($LASTEXITCODE -ne 0) { throw "Could not extract $($app.name)." }
 
     # libmpv is not redistributed here: fetch it from its own build project.
     $dll = Join-Path $dest "libmpv-2.dll"
