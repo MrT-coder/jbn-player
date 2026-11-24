@@ -32,7 +32,17 @@ type Server struct {
 type Data struct {
 	Servers []Server `json:"servers"`
 	Active  string   `json:"active"` // ID of the server in use
+	Songkey Songkey  `json:"-"`
 }
+
+// Songkey is the optional songkey service (adds YouTube links to the library).
+type Songkey struct {
+	URL   string
+	Token string // plaintext, memory only
+}
+
+// Configured reports whether songkey can be used.
+func (s Songkey) Configured() bool { return s.URL != "" }
 
 // ActiveServer returns the selected server, or the first one as a fallback.
 func (d Data) ActiveServer() (Server, bool) {
@@ -69,9 +79,36 @@ type diskServer struct {
 	Password string `json:"password,omitempty"` // base64(DPAPI(password))
 }
 
+type diskSongkey struct {
+	URL   string `json:"url"`
+	Token string `json:"token,omitempty"` // base64(DPAPI(token))
+}
+
 type diskData struct {
 	Servers []diskServer `json:"servers"`
 	Active  string       `json:"active"`
+	Songkey *diskSongkey `json:"songkey,omitempty"`
+}
+
+// seal and unseal turn a secret into base64(DPAPI(secret)) and back.
+func seal(secret string) (string, error) {
+	enc, err := protect([]byte(secret))
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(enc), nil
+}
+
+func unseal(stored string) (string, error) {
+	enc, err := base64.StdEncoding.DecodeString(stored)
+	if err != nil {
+		return "", fmt.Errorf("bad encoding: %w", err)
+	}
+	plain, err := unprotect(enc)
+	if err != nil {
+		return "", fmt.Errorf("cannot decrypt (saved by another Windows user or machine?): %w", err)
+	}
+	return string(plain), nil
 }
 
 // Load reads and decrypts the file. A missing file is an empty Data, not an error.
@@ -91,17 +128,23 @@ func Load(path string) (Data, error) {
 	for _, ds := range dd.Servers {
 		s := ds.Server
 		if ds.Password != "" {
-			enc, err := base64.StdEncoding.DecodeString(ds.Password)
+			plain, err := unseal(ds.Password)
 			if err != nil {
-				return Data{}, fmt.Errorf("server %q: bad password encoding: %w", s.Name, err)
+				return Data{}, fmt.Errorf("server %q password: %w", s.Name, err)
 			}
-			plain, err := unprotect(enc)
-			if err != nil {
-				return Data{}, fmt.Errorf("server %q: cannot decrypt password (saved by another Windows user or machine?): %w", s.Name, err)
-			}
-			s.Password = string(plain)
+			s.Password = plain
 		}
 		d.Servers = append(d.Servers, s)
+	}
+	if sk := dd.Songkey; sk != nil {
+		d.Songkey.URL = sk.URL
+		if sk.Token != "" {
+			plain, err := unseal(sk.Token)
+			if err != nil {
+				return Data{}, fmt.Errorf("songkey token: %w", err)
+			}
+			d.Songkey.Token = plain
+		}
 	}
 	return d, nil
 }
@@ -112,13 +155,23 @@ func Save(path string, d Data) error {
 	for _, s := range d.Servers {
 		ds := diskServer{Server: s}
 		if s.Password != "" {
-			enc, err := protect([]byte(s.Password))
+			enc, err := seal(s.Password)
 			if err != nil {
 				return fmt.Errorf("encrypt password: %w", err)
 			}
-			ds.Password = base64.StdEncoding.EncodeToString(enc)
+			ds.Password = enc
 		}
 		dd.Servers = append(dd.Servers, ds)
+	}
+	if d.Songkey.Configured() {
+		dd.Songkey = &diskSongkey{URL: d.Songkey.URL}
+		if d.Songkey.Token != "" {
+			enc, err := seal(d.Songkey.Token)
+			if err != nil {
+				return fmt.Errorf("encrypt songkey token: %w", err)
+			}
+			dd.Songkey.Token = enc
+		}
 	}
 	raw, err := json.MarshalIndent(dd, "", "  ")
 	if err != nil {

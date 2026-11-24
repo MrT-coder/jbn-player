@@ -54,3 +54,31 @@ func TestActiveServerFallsBackToFirst(t *testing.T) {
 		t.Fatal("empty data has no active server")
 	}
 }
+
+func TestSongkeyTokenIsEncryptedAndOptional(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "servers.json")
+	in := Data{Servers: []Server{{ID: "a", URL: "https://x"}}, Active: "a",
+		Songkey: Songkey{URL: "https://songkey.example", Token: "tok-very-secret"}}
+	if err := Save(path, in); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(path)
+	if strings.Contains(string(raw), "tok-very-secret") || !strings.Contains(string(raw), "https://songkey.example") {
+		t.Fatalf("token must be encrypted, URL readable: %s", raw)
+	}
+	out, err := Load(path)
+	if err != nil || out.Songkey != in.Songkey || out.Servers[0].URL != "https://x" {
+		t.Fatalf("round trip: %+v %v", out, err)
+	}
+	// Without songkey the file keeps its old shape (no empty "songkey" block).
+	if err := Save(path, Data{Servers: in.Servers, Active: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(path)
+	if strings.Contains(string(raw), "songkey") {
+		t.Fatalf("unexpected songkey block: %s", raw)
+	}
+	if out, _ := Load(path); out.Songkey.Configured() {
+		t.Fatal("not configured")
+	}
+}

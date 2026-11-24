@@ -182,8 +182,7 @@ func importLegacyEnv(serversPath, exeDir string) error {
 		return nil // nothing to import
 	}
 	id := store.NewID()
-	return store.Save(serversPath, store.Data{
-		Servers: []store.Server{{ID: id, Type: store.TypeSubsonic, Name: "Navidrome", URL: cfg.URL, User: cfg.User, Password: cfg.Password}},
-		Active:  id,
-	})
+	d.Servers = []store.Server{{ID: id, Type: store.TypeSubsonic, Name: "Navidrome", URL: cfg.URL, User: cfg.User, Password: cfg.Password}}
+	d.Active = id
+	return store.Save(serversPath, d) // keeps anything else already saved (songkey)
 }
