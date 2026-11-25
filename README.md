@@ -36,6 +36,10 @@ or a browser tab you have to keep open. jbn-player takes a different approach:
   paste a link in Playlists and follow it until the song reaches your library
   playlist (set the songkey URL and API token in Settings; the token is stored
   encrypted and never reaches the window's web page)
+- A global keyboard shortcut (Ctrl+Alt+J by default) opens and closes the
+  popup from anywhere, even inside a game; change it or turn it off in
+  Settings > Shortcut, which refuses a combination another application already
+  registered
 - Volume, output device selection and equalizer
 - Accent color and background tone
 - Multiple formats and gapless playback (through libmpv)
@@ -62,8 +66,8 @@ also download `jbn-player-windows-x64.zip` from the Releases page and put
 ## Use
 
 1. Start jbn-player and look for the tray icon.
-2. Left-click the icon to open the popup (right-click for the menu: play/pause,
-   next, previous, open, quit).
+2. Left-click the icon, or press Ctrl+Alt+J, to open the popup (right-click for
+   the menu: play/pause, next, previous, open, quit).
 3. First run opens the server setup: enter your Navidrome URL, user and password.
 4. Run a library sync, then browse or search and play.
 5. For offline use, use the download action on a song, album or playlist, or the
@@ -107,6 +111,7 @@ internal/player       libmpv wrapper + queue
 internal/offline      offline copies
 internal/ipc          loopback HTTP + token between the popup and the player
 internal/tray         tray icon and menu
+internal/hotkey       global shortcut that toggles the popup (RegisterHotKey)
 internal/island       popup window (WebView2) and its UI
 spikes/               throwaway measurements; own modules
 ```
