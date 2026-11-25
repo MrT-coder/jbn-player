@@ -18,6 +18,7 @@ const LINE = {
   songs: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
   playlists: '<path d="M4 6h12M4 12h12M4 18h7"/><path d="M19 9v7"/><circle cx="17" cy="17" r="2.2"/>',
   playing: '<path d="M6 20V10M12 20V4M18 20v-7"/>',
+  mix: '<path d="M4 18c3 0 5-12 8-12s5 12 8 12"/><path d="M4 12h3M17 12h3"/>',
   nowifi: '<path d="M12 20h.01M8.5 16.4a5 5 0 0 1 7 0M5 12.9a10 10 0 0 1 5.2-2.7M19 12.9a10 10 0 0 0-2-1.5M2 8.8a15 15 0 0 1 4.2-2.6M22 8.8a15 15 0 0 0-11.3-3.8M2 2l20 20"/>',
   settings: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
   playnext: '<path d="M5 5l8 7-8 7z"/><path d="M18 5v14"/>',
@@ -404,8 +405,45 @@ function Albums({ act, toast, goSettings, offline, onOffline }) {
 
 const SONGS_PAGE = 100;
 
-function Songs({ act, toast, sync, playAll, goSettings }) {
+// Mix: pick genres and/or decades; it plays every matching song in weighted
+// order (favorites and often played songs first more often, recent ones rest).
+function MixPanel({ act, toast, setPs, sync, onClose }) {
+  const [opts, setOpts] = useState(null);
+  const [genres, setGenres] = useState(new Set());
+  const [decades, setDecades] = useState(new Set());
+  const [count, setCount] = useState(null);
+  useEffect(() => { window.mixOptions().then(setOpts); }, [sync.info && sync.info.at]);
+  const filter = () => ({ genres: [...genres], decades: [...decades].map(Number) });
+  useEffect(() => { window.mixCount(filter()).then((r) => setCount(r.error ? null : r.count)); }, [genres, decades]);
+  const flip = (set, setter, v) => { const n = new Set(set); if (n.has(v)) n.delete(v); else n.add(v); setter(n); };
+  const play = async () => {
+    const r = await window.playMix(filter());
+    if (r.error) return toast(r.error, 'err');
+    setPs(r);
+    toast('Playing a mix of ' + count + ' songs');
+    onClose();
+  };
+  const chips = (list, set, setter, label) => html`<div class="chips mix">${list.map((c) => html`
+    <button class=${'chip' + (set.has(c.name) ? ' active' : '')} key=${c.name} aria-pressed=${set.has(c.name)}
+      title=${c.count + ' songs'} onClick=${() => flip(set, setter, c.name)}>${label(c.name)}</button>`)}</div>`;
+  if (!opts) return html`<div class="mixpanel"><div class="sub">Loading…</div></div>`;
+  if (opts.error) return html`<div class="mixpanel"><div class="banner">${opts.error}</div></div>`;
+  return html`<div class="mixpanel">
+    ${opts.needsSync
+      ? html`<div class="sub">Sync the library once to get genres and years for mixes.</div>`
+      : html`
+        ${opts.genres.length ? html`<h3>Genres</h3>${chips(opts.genres, genres, setGenres, (n) => n)}` : ''}
+        ${opts.decades.length ? html`<h3>Decades</h3>${chips(opts.decades, decades, setDecades, (n) => "'" + n.slice(2) + 's')}` : ''}
+        <div class="row" style="margin-top:10px">
+          <span class="sub grow">${genres.size || decades.size ? 'Any selected genre, and any selected decade' : 'Nothing selected: the whole library'}</span>
+          <button class="primary sm with-icon" disabled=${!count} onClick=${play}><${Icon} name="play" size=${14} /> Play ${count == null ? '' : count + ' songs'}</button>
+        </div>`}
+  </div>`;
+}
+
+function Songs({ act, toast, sync, playAll, goSettings, setPs }) {
   const [q, setQ] = useState('');
+  const [mixing, setMixing] = useState(false);
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -483,8 +521,13 @@ function Songs({ act, toast, sync, playAll, goSettings }) {
             <button class="sm" onClick=${() => setSel(new Map(items.map((t) => [t.id, t])))}>Select shown</button>
             <button class="primary sm with-icon" disabled=${!sel.size} onClick=${downloadSelected}><${Icon} name="download" size=${14} /> Download</button>
             <button class="ghost sm" onClick=${stopSelecting}>Cancel</button>
-          </div>` : html`<div class="row" style="margin:12px 0">
-            ${!searching ? html`<button class="primary with-icon" disabled=${!total} onClick=${() => playAll(true)}><${Icon} name="shuffle" size=${16} /> Shuffle all</button>` : ''}
+          </div>` : html`${!searching ? html`<div class="row" style="margin:12px 0 4px">
+            <button class="primary with-icon" disabled=${!total} onClick=${() => playAll(true)}
+              title="Favorites and often played songs come first more often"><${Icon} name="shuffle" size=${16} /> Shuffle all</button>
+              <button class=${'with-icon' + (mixing ? ' on' : '')} disabled=${!total} aria-expanded=${mixing} onClick=${() => setMixing(!mixing)}
+              title="Play by genre and decade"><${Icon} name="mix" size=${16} /> Mix</button>
+          </div>
+          ${mixing ? html`<${MixPanel} act=${act} toast=${toast} setPs=${setPs} sync=${sync} onClose=${() => setMixing(false)} />` : ''}` : ''}<div class="row" style="margin:8px 0 12px">
             <span class="grow sub">${total} songs</span>
             <button class="sm" disabled=${!total} onClick=${() => setSelecting(true)}>Select</button>
             <button class=${'sm with-icon' + (armed ? ' danger' : '')} disabled=${!total} onClick=${downloadAll}
@@ -1014,7 +1057,7 @@ function App() {
     ${offline ? html`<button class="offline-badge" title="Offline: showing downloaded music only. Click to check the server again."
       aria-label="Offline mode. Check the server again" onClick=${checkServer}><${Icon} name="nowifi" size=${15} /></button>` : ''}
     ${tab === 'albums' ? html`<${Albums} key=${libKey} act=${act} toast=${toast} goSettings=${() => setTab('settings')} offline=${offline} onOffline=${() => goOffline(true)} />` : ''}
-    ${tab === 'songs' ? html`<${Songs} key=${libKey} act=${act} toast=${toast} sync=${sync} playAll=${playAll} goSettings=${() => setTab('settings')} />` : ''}
+    ${tab === 'songs' ? html`<${Songs} key=${libKey} act=${act} toast=${toast} sync=${sync} playAll=${playAll} goSettings=${() => setTab('settings')} setPs=${setPs} />` : ''}
     ${tab === 'playlists' ? html`<${Playlists} key=${libKey} act=${act} toast=${toast} sync=${sync} />` : ''}
     ${tab === 'now' ? html`<${NowPlaying} ps=${ps} act=${act} goLibrary=${() => setTab('albums')} setVolume=${setVolume} />` : ''}
     ${tab === 'settings' ? html`<${Settings} onChanged=${() => setLibKey(libKey + 1)} toast=${toast} setVolume=${setVolume} volume=${ps.volume} ap=${ap} setAp=${setAp} />` : ''}

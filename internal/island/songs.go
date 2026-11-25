@@ -191,7 +191,7 @@ func only(ss []library.Song, keep func(library.Song) bool) []library.Song {
 }
 
 // PlayAll replaces the one queue with the whole library: in title order, or
-// shuffled starting from a random song. Shuffle stays on/off as chosen here.
+// in weighted shuffle order. Shuffle stays on/off as chosen here.
 // Offline, only the stored songs.
 func (s *service) PlayAll(shuffle bool) stateResult {
 	c, keep, err := s.localLib()
@@ -205,19 +205,21 @@ func (s *service) PlayAll(shuffle bool) stateResult {
 	if len(songs) == 0 {
 		return stateResult{Error: "no songs are stored offline yet"}
 	}
+	if shuffle {
+		return s.playWeighted(songs) // favorites first more often, artists kept apart (mix.go)
+	}
 	tracks := make([]player.Track, len(songs))
 	for i, x := range songs {
 		tracks[i] = libTrack(x)
 	}
-	start := player.AnyStart // the player picks a random one when shuffle is on
 	cl, err := ipc.Dial(s.ipcPath)
 	if err != nil {
 		return stateResult{Error: err.Error()}
 	}
-	if _, err := cl.Do("shuffle", ipc.Request{On: shuffle}); err != nil {
+	if _, err := cl.Do("shuffle", ipc.Request{On: false}); err != nil {
 		return stateResult{Error: err.Error()}
 	}
-	st, err := cl.Do("play", ipc.Request{Tracks: tracks, Start: start})
+	st, err := cl.Do("play", ipc.Request{Tracks: tracks, Start: player.AnyStart})
 	if err != nil {
 		return stateResult{Error: err.Error()}
 	}

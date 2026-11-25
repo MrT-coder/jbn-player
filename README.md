@@ -35,6 +35,11 @@ or a browser tab you have to keep open. jbn-player takes a different approach:
 - Browse albums, search, all-songs list and playlists
 - One play queue: play next, add to queue, shuffle, drag to reorder; clicking a
   song plays it inside the queue you already have instead of replacing it
+- Smarter shuffle: shuffle spreads each artist across the queue; "Shuffle all"
+  plays favorites, high ratings and often played songs first more often and
+  rests what you played in the last week; "Mix" (Songs tab) plays the genres
+  and decades you pick, the same way. Run a library sync once after updating
+  so the local copy has genres, years and listening stats.
 - Seek bar in Now playing and a progress line on the mini player
 - Offline copies per song, album or playlist, with "Download all" and a select
   mode; only fetches what is not stored yet; custom offline folder
