@@ -22,7 +22,13 @@ or a browser tab you have to keep open. jbn-player takes a different approach:
   exits and its memory is released.
 - **Works when the server is off.** Mark songs, albums or playlists as offline
   and they play from local files. If a local copy exists it is used; otherwise
-  the song is streamed.
+  the song is streamed. When the server cannot be reached (no network, server
+  off, wrong address or password), the popup switches to offline mode: a small
+  no-network icon appears in its top-right corner, and albums, songs, playlists
+  and search show only the downloaded music, with their covers. Click the icon
+  to check again; the popup also checks on open and every 30 seconds while it
+  is open. While the server is reachable and the popup is open, the covers of
+  downloaded songs are saved next to them (one per album, only once).
 
 ## Features
 

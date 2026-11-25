@@ -130,6 +130,7 @@ func Run() error {
 		"songkeyDismiss": svc.SongkeyDismiss,
 		"getHotkey":      svc.GetHotkey,
 		"hotkeyDo":       svc.HotkeyDo,
+		"serverStatus":   svc.ServerStatus,
 	} {
 		if err := w.Bind(name, fn); err != nil {
 			return err

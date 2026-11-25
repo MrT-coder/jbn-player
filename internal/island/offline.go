@@ -80,6 +80,9 @@ func (s *service) OfflineIDs() offlineIDs {
 // empty) that is not offline yet. Songs already stored are skipped, so running
 // it again only fetches what is new.
 func (s *service) OfflineAll(q string) offlineAllResult {
+	if s.offline.Load() {
+		return offlineAllResult{Error: "the server is unreachable: downloads need it"}
+	}
 	c, err := s.loadLib()
 	if err != nil {
 		return offlineAllResult{Error: err.Error()}

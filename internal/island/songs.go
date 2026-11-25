@@ -110,51 +110,49 @@ func (s *service) SyncLibrary() syncInfo {
 }
 
 func (s *service) libTrackViews(ss []library.Song) []trackView {
-	c, cerr := s.client()
 	out := make([]trackView, 0, len(ss))
 	for _, x := range ss {
-		tv := trackView{Track: player.Track{ID: x.ID, Title: x.Title, Artist: x.Artist, Album: x.Album, CoverArt: x.CoverArt, Duration: x.Duration}}
-		if cerr == nil {
-			tv.Cover = c.CoverURL(x.CoverArt, coverSmall)
-		}
-		out = append(out, tv)
+		out = append(out, trackView{Track: libTrack(x), Cover: s.coverURL(x.CoverArt, coverSmall)})
 	}
 	return out
 }
 
 // Songs lists the library's songs (all of them, no album needed), filtered by q.
+// Offline, only the stored ones.
 func (s *service) Songs(q string, offset, limit int) songsResult {
-	c, err := s.loadLib()
+	c, keep, err := s.localLib()
 	if err != nil {
 		return songsResult{Items: []trackView{}, Error: err.Error()}
 	}
 	if c == nil {
 		return songsResult{Items: []trackView{}}
 	}
-	songs, total := c.Find(q, offset, limit)
+	songs, total := c.FindWhere(q, offset, limit, keep)
 	return songsResult{Items: s.libTrackViews(songs), Total: total, Synced: true}
 }
 
-// Playlists lists the server's playlists from the local copy.
+// Playlists lists the server's playlists from the local copy. Offline, only
+// the playlists with stored songs, counting those.
 func (s *service) Playlists() playlistsResult {
-	c, err := s.loadLib()
+	c, keep, err := s.localLib()
 	if err != nil {
 		return playlistsResult{Items: []playlistView{}, Error: err.Error()}
 	}
 	if c == nil {
 		return playlistsResult{Items: []playlistView{}}
 	}
-	cl, cerr := s.client()
 	out := playlistsResult{Items: make([]playlistView, 0, len(c.Playlists)), Synced: true}
 	for _, p := range c.Playlists {
 		songs, _ := c.PlaylistSongs(p.ID)
+		songs = only(songs, keep)
+		if keep != nil && len(songs) == 0 {
+			continue
+		}
 		v := playlistView{ID: p.ID, Name: p.Name, Count: len(songs)}
-		if cerr == nil {
-			for _, sg := range songs {
-				if sg.CoverArt != "" {
-					v.Cover = cl.CoverURL(sg.CoverArt, coverMid)
-					break
-				}
+		for _, sg := range songs {
+			if sg.CoverArt != "" {
+				v.Cover = s.coverURL(sg.CoverArt, coverMid)
+				break
 			}
 		}
 		out.Items = append(out.Items, v)
@@ -164,7 +162,7 @@ func (s *service) Playlists() playlistsResult {
 
 // PlaylistTracks lists the songs of a playlist, in playlist order.
 func (s *service) PlaylistTracks(id string) tracksResult {
-	c, err := s.loadLib()
+	c, keep, err := s.localLib()
 	if err != nil {
 		return tracksResult{Items: []trackView{}, Error: err.Error()}
 	}
@@ -175,22 +173,41 @@ func (s *service) PlaylistTracks(id string) tracksResult {
 	if !ok {
 		return tracksResult{Items: []trackView{}, Error: "playlist not found (sync again?)"}
 	}
-	return tracksResult{Items: s.libTrackViews(songs)}
+	return tracksResult{Items: s.libTrackViews(only(songs, keep))}
+}
+
+// only returns the songs keep accepts (all of them when keep is nil).
+func only(ss []library.Song, keep func(library.Song) bool) []library.Song {
+	if keep == nil {
+		return ss
+	}
+	out := make([]library.Song, 0, len(ss))
+	for _, x := range ss {
+		if keep(x) {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // PlayAll replaces the one queue with the whole library: in title order, or
 // shuffled starting from a random song. Shuffle stays on/off as chosen here.
+// Offline, only the stored songs.
 func (s *service) PlayAll(shuffle bool) stateResult {
-	c, err := s.loadLib()
+	c, keep, err := s.localLib()
 	if err != nil {
 		return stateResult{Error: err.Error()}
 	}
 	if c == nil || len(c.Songs) == 0 {
 		return stateResult{Error: "library not synced yet"}
 	}
-	tracks := make([]player.Track, len(c.Songs))
-	for i, x := range c.Songs {
-		tracks[i] = player.Track{ID: x.ID, Title: x.Title, Artist: x.Artist, Album: x.Album, CoverArt: x.CoverArt, Duration: x.Duration}
+	songs := only(c.Songs, keep)
+	if len(songs) == 0 {
+		return stateResult{Error: "no songs are stored offline yet"}
+	}
+	tracks := make([]player.Track, len(songs))
+	for i, x := range songs {
+		tracks[i] = libTrack(x)
 	}
 	start := player.AnyStart // the player picks a random one when shuffle is on
 	cl, err := ipc.Dial(s.ipcPath)

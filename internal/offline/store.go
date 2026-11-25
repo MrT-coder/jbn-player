@@ -4,6 +4,7 @@
 //
 //	index.json     which songs are stored and how big they are
 //	<id>.<ext>     the original audio file, as the server sent it
+//	covers/        album covers of the stored songs, for offline mode
 //
 // Nothing here ever writes to or deletes anything on the server: removing an
 // offline copy only deletes the local file.
@@ -31,6 +32,10 @@ var (
 
 // Dir is the folder of one server's offline copies under the root.
 func Dir(root, serverID string) string { return filepath.Join(root, serverID) }
+
+// CoversDir holds the album covers of the stored songs (<cover id>.jpg), so
+// the window can show them while the server is off. The window fills it.
+func CoversDir(dir string) string { return filepath.Join(dir, "covers") }
 
 type entry struct {
 	File string `json:"file"`
@@ -195,11 +200,11 @@ func (s *Store) Remove(id string) error {
 	return s.saveLocked()
 }
 
-// Clear deletes every local copy.
+// Clear deletes every local copy, and the covers kept for them.
 func (s *Store) Clear() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var first error
+	first := os.RemoveAll(CoversDir(s.dir))
 	for id, e := range s.idx {
 		if err := os.Remove(filepath.Join(s.dir, e.File)); err != nil && !errors.Is(err, os.ErrNotExist) && first == nil {
 			first = err

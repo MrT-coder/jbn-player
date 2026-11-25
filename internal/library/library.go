@@ -206,9 +206,18 @@ func (c *Cache) Save(path string) error {
 // Find returns the songs matching q (all words must appear in title, artist
 // or album; empty q matches everything), plus the total number of matches.
 func (c *Cache) Find(q string, offset, limit int) ([]Song, int) {
+	return c.FindWhere(q, offset, limit, nil)
+}
+
+// FindWhere is Find limited to the songs keep accepts (nil keeps all); the
+// filter runs before paging, so the total counts only kept songs.
+func (c *Cache) FindWhere(q string, offset, limit int, keep func(Song) bool) ([]Song, int) {
 	words := strings.Fields(fold(q))
 	var matches []int
 	for i := range c.Songs {
+		if keep != nil && !keep(c.Songs[i]) {
+			continue
+		}
 		ok := true
 		for _, w := range words {
 			if !strings.Contains(c.folded[i], w) {
@@ -236,6 +245,49 @@ func (c *Cache) Find(q string, offset, limit int) ([]Song, int) {
 		out = append(out, c.Songs[i])
 	}
 	return out, total
+}
+
+// Album is an album rebuilt from the local copy (used when the server is off).
+type Album struct {
+	ID        string
+	Name      string
+	Artist    string
+	CoverArt  string
+	SongCount int
+}
+
+// Albums groups the songs keep accepts (nil keeps all) into albums, sorted by name.
+func (c *Cache) Albums(keep func(Song) bool) []Album {
+	at := map[string]int{}
+	var out []Album
+	for _, s := range c.Songs {
+		if s.AlbumID == "" || (keep != nil && !keep(s)) {
+			continue
+		}
+		if i, ok := at[s.AlbumID]; ok {
+			out[i].SongCount++
+			if out[i].CoverArt == "" {
+				out[i].CoverArt = s.CoverArt
+			}
+			continue
+		}
+		at[s.AlbumID] = len(out)
+		out = append(out, Album{ID: s.AlbumID, Name: s.Album, Artist: s.Artist, CoverArt: s.CoverArt, SongCount: 1})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return fold(out[i].Name) < fold(out[j].Name) })
+	return out
+}
+
+// AlbumSongs returns the songs of an album that keep accepts, in track order.
+func (c *Cache) AlbumSongs(id string, keep func(Song) bool) []Song {
+	var out []Song
+	for _, s := range c.Songs {
+		if s.AlbumID == id && (keep == nil || keep(s)) {
+			out = append(out, s)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Track < out[j].Track })
+	return out
 }
 
 // PlaylistSongs returns a playlist's songs in order (songs no longer in the
