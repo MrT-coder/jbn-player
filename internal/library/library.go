@@ -33,6 +33,16 @@ type Song struct {
 	CoverArt string `json:"coverArt"`
 	Duration int    `json:"duration"`
 	Track    int    `json:"track"`
+
+	// Listening data for the weighted shuffle and the mixes (mix.go). It is
+	// as fresh as the last sync; copies saved before these fields existed
+	// simply lack them until the next sync.
+	Genres    []string `json:"genres,omitempty"`
+	Year      int      `json:"year,omitempty"`
+	PlayCount int      `json:"playCount,omitempty"`
+	Starred   bool     `json:"starred,omitempty"`
+	Rating    int      `json:"rating,omitempty"` // 1-5, 0 = not rated
+	Played    int64    `json:"played,omitempty"` // last play, Unix seconds
 }
 
 // Playlist references songs by ID, in playlist order.
@@ -83,8 +93,21 @@ func (c *Cache) index() {
 }
 
 func fromSubsonic(s subsonic.Song) Song {
-	return Song{ID: s.ID, Title: s.Title, Artist: s.Artist, Album: s.Album, AlbumID: s.AlbumID,
-		CoverArt: s.CoverArt, Duration: s.Duration, Track: s.Track}
+	out := Song{ID: s.ID, Title: s.Title, Artist: s.Artist, Album: s.Album, AlbumID: s.AlbumID,
+		CoverArt: s.CoverArt, Duration: s.Duration, Track: s.Track,
+		Year: s.Year, PlayCount: s.PlayCount, Starred: s.Starred != "", Rating: s.UserRating}
+	for _, g := range s.Genres {
+		if g.Name != "" {
+			out.Genres = append(out.Genres, g.Name)
+		}
+	}
+	if len(out.Genres) == 0 && s.Genre != "" {
+		out.Genres = []string{s.Genre}
+	}
+	if t, err := time.Parse(time.RFC3339, s.Played); err == nil {
+		out.Played = t.Unix()
+	}
+	return out
 }
 
 // Sync downloads every song and playlist. The result is only meaningful if
