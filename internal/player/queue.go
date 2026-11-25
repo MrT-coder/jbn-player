@@ -1,6 +1,11 @@
 package player
 
-import "math/rand"
+import (
+	"math/rand"
+	"sort"
+	"strconv"
+	"strings"
+)
 
 // Track is a queued song. The JSON tags are the wire format used by the island.
 type Track struct {
@@ -21,19 +26,83 @@ type queue struct {
 	version uint64 // bumped whenever the list of tracks changes (not on index moves)
 }
 
+// shuffleTracks is a "balanced" shuffle (the method Spotify described in
+// 2014): each artist's songs are shuffled among themselves and then spread
+// evenly over the whole list, starting at a random offset and with a little
+// jitter, so the same artist rarely plays twice in a row.
 func shuffleTracks(ts []Track) {
-	rand.Shuffle(len(ts), func(i, j int) { ts[i], ts[j] = ts[j], ts[i] })
+	groups := map[string][]Track{}
+	for i, t := range ts {
+		key := strings.ToLower(strings.TrimSpace(t.Artist))
+		if key == "" {
+			key = "\x00" + strconv.Itoa(i) // no artist: a group of its own
+		}
+		groups[key] = append(groups[key], t)
+	}
+	type placed struct {
+		pos float64
+		t   Track
+	}
+	all := make([]placed, 0, len(ts))
+	for _, g := range groups {
+		rand.Shuffle(len(g), func(i, j int) { g[i], g[j] = g[j], g[i] })
+		step := 1 / float64(len(g))
+		offset := rand.Float64() * step
+		for k, t := range g {
+			jitter := (rand.Float64() - 0.5) * 0.2 * step
+			all = append(all, placed{offset + float64(k)*step + jitter, t})
+		}
+	}
+	sort.Slice(all, func(i, j int) bool { return all[i].pos < all[j].pos })
+	for i, p := range all {
+		ts[i] = p.t
+	}
+	SeparateArtists(ts)
+}
+
+func artistKey(t Track) string { return strings.ToLower(strings.TrimSpace(t.Artist)) }
+
+// SeparateArtists breaks up back-to-back songs of the same artist by swapping
+// the second one with the nearest later song of another artist. The order is
+// otherwise kept, so a list ranked by preference stays roughly ranked.
+func SeparateArtists(ts []Track) {
+	for i := 1; i < len(ts); i++ {
+		x := artistKey(ts[i])
+		if x == "" || x != artistKey(ts[i-1]) {
+			continue
+		}
+		// Move ts[i] to a slot j whose neighbours are not artist x either.
+		for j := i + 1; j < len(ts); j++ {
+			if artistKey(ts[j]) == x {
+				continue
+			}
+			leftOK := j == i+1 || artistKey(ts[j-1]) != x
+			rightOK := j+1 >= len(ts) || artistKey(ts[j+1]) != x
+			if leftOK && rightOK {
+				ts[i], ts[j] = ts[j], ts[i]
+				break
+			}
+		}
+	}
 }
 
 // AnyStart asks for "no preference" as the start index of a new queue: the
 // first track normally, but a random one when shuffle is on.
 const AnyStart = -1
 
+// Ordered is a start index for a list the sender already shuffled (a weighted
+// mix): it plays from the first track in the given order, even with shuffle on.
+const Ordered = -2
+
 // set replaces the queue and starts at start. With shuffle on, the chosen
 // track plays first and the rest is shuffled.
 func (q *queue) set(ts []Track, start int) {
 	q.version++
 	q.tracks = append([]Track(nil), ts...)
+	if start == Ordered {
+		q.idx = 0
+		return
+	}
 	switch {
 	case start == AnyStart && q.shuffle && len(q.tracks) > 1:
 		start = rand.Intn(len(q.tracks))
