@@ -177,3 +177,68 @@ func TestRefreshPlaylistAddsNewSongsWithoutTouchingTheOldCopy(t *testing.T) {
 		t.Fatalf("new playlist: %+v %v", n2.Playlists, err)
 	}
 }
+
+func offlineCache() *Cache {
+	c := &Cache{Version: cacheVersion, Songs: []Song{
+		{ID: "a2", Title: "Second", Artist: "Ann", Album: "Zebra", AlbumID: "z", CoverArt: "cz", Track: 2},
+		{ID: "a1", Title: "First", Artist: "Ann", Album: "Zebra", AlbumID: "z", CoverArt: "cz", Track: 1},
+		{ID: "b1", Title: "Only", Artist: "Bob", Album: "Apple", AlbumID: "ap", CoverArt: "ca", Track: 1},
+		{ID: "c1", Title: "Not stored", Artist: "Cid", Album: "Cherry", AlbumID: "ch", Track: 1},
+	}}
+	c.index()
+	return c
+}
+
+func storedOnly(ids ...string) func(Song) bool {
+	set := map[string]bool{}
+	for _, id := range ids {
+		set[id] = true
+	}
+	return func(s Song) bool { return set[s.ID] }
+}
+
+func TestAlbumsGroupsKeptSongsByAlbumSortedByName(t *testing.T) {
+	c := offlineCache()
+	got := c.Albums(storedOnly("a1", "a2", "b1"))
+	if len(got) != 2 {
+		t.Fatalf("got %+v, want Apple and Zebra only", got)
+	}
+	if got[0].ID != "ap" || got[0].Name != "Apple" || got[0].Artist != "Bob" || got[0].SongCount != 1 || got[0].CoverArt != "ca" {
+		t.Fatalf("first: %+v", got[0])
+	}
+	if got[1].ID != "z" || got[1].SongCount != 2 {
+		t.Fatalf("second: %+v", got[1])
+	}
+	if all := c.Albums(nil); len(all) != 3 {
+		t.Fatalf("nil keeps everything: %+v", all)
+	}
+}
+
+func TestAlbumSongsAreInTrackOrderAndFiltered(t *testing.T) {
+	c := offlineCache()
+	got := c.AlbumSongs("z", storedOnly("a1", "a2"))
+	if len(got) != 2 || got[0].ID != "a1" || got[1].ID != "a2" {
+		t.Fatalf("got %+v", got)
+	}
+	if got := c.AlbumSongs("z", storedOnly("a2")); len(got) != 1 || got[0].ID != "a2" {
+		t.Fatalf("filtered: %+v", got)
+	}
+	if got := c.AlbumSongs("nope", nil); len(got) != 0 {
+		t.Fatalf("unknown album: %+v", got)
+	}
+}
+
+func TestFindWhereFiltersBeforePaging(t *testing.T) {
+	c := offlineCache()
+	got, total := c.FindWhere("", 0, 1, storedOnly("b1", "c1"))
+	if total != 2 || len(got) != 1 {
+		t.Fatalf("got %+v total %d", got, total)
+	}
+	if got, total := c.FindWhere("ann", 0, 0, storedOnly("a1")); total != 1 || got[0].ID != "a1" {
+		t.Fatalf("query+filter: %+v %d", got, total)
+	}
+	// Find keeps working as before.
+	if _, total := c.Find("", 0, 0); total != 4 {
+		t.Fatalf("Find total %d", total)
+	}
+}

@@ -5,9 +5,11 @@ package island
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"jbnplayer/internal/library"
@@ -29,10 +31,17 @@ type service struct {
 	lib       *library.Cache
 	libServer string // server ID the in-memory cache belongs to
 
-	cached    *subsonic.Client // active server's client, see client()
+	cached *subsonic.Client // active server's client, see client()
 
-	skJobsMu sync.Mutex // the followed songkey jobs (songkey.go)
+	skJobsMu  sync.Mutex // the followed songkey jobs (songkey.go)
 	cachedKey string
+
+	offline atomic.Bool // the server did not answer: stored songs only (serverstatus.go)
+
+	backfilling atomic.Bool  // a cover backfill is running (covers.go)
+	coverMu     sync.Mutex   // guards the loopback cover server below
+	coverBase   string       // its base URL, "" until first used
+	coverSrv    *http.Server // serves stored covers while offline
 }
 
 type serverView struct {

@@ -235,3 +235,18 @@ button.icon.on { color: var(--accent-hover); }
 /* Shortcut: the current combination and the recording state */
 .kbd { display: inline-flex; align-items: center; min-height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); font: 600 13px/1 ui-monospace, Consolas, monospace; color: var(--text); background: transparent; }
 .kbd.rec { border-color: var(--accent); color: var(--accent); font-family: inherit; font-weight: 500; text-align: left; cursor: default; }
+
+/* offline mode: a small no-network badge in the top-right corner, in the accent color */
+.offline-badge { position: absolute; top: 2px; right: 10px; z-index: 6; padding: 3px; line-height: 0;
+  background: transparent; color: var(--accent); animation: rise .2s var(--ease) both; }
+.offline-badge:hover { background: var(--card); color: var(--accent-hover); }
+
+/* a delete button waiting for its second click */
+button.icon.armed, button.icon.armed:hover { color: var(--err); background: rgba(255,107,107,.14); }
+.track:has(button.armed) .acts { opacity: 1; }
+
+/* Mix panel (Songs tab): genre and decade chips, then Play */
+.mixpanel { background: var(--card); border-radius: 10px; padding: 10px 12px 12px; margin: -4px 0 12px; animation: rise .18s var(--ease) both; }
+.mixpanel h3 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 6px 0 6px; }
+.chips.mix { flex-wrap: wrap; overflow: visible; margin-bottom: 4px; }
+button.with-icon.on { color: var(--accent-hover); box-shadow: inset 0 0 0 1px var(--accent); }

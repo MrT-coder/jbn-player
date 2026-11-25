@@ -18,6 +18,8 @@ const LINE = {
   songs: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
   playlists: '<path d="M4 6h12M4 12h12M4 18h7"/><path d="M19 9v7"/><circle cx="17" cy="17" r="2.2"/>',
   playing: '<path d="M6 20V10M12 20V4M18 20v-7"/>',
+  mix: '<path d="M4 18c3 0 5-12 8-12s5 12 8 12"/><path d="M4 12h3M17 12h3"/>',
+  nowifi: '<path d="M12 20h.01M8.5 16.4a5 5 0 0 1 7 0M5 12.9a10 10 0 0 1 5.2-2.7M19 12.9a10 10 0 0 0-2-1.5M2 8.8a15 15 0 0 1 4.2-2.6M22 8.8a15 15 0 0 0-11.3-3.8M2 2l20 20"/>',
   settings: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',
   playnext: '<path d="M5 5l8 7-8 7z"/><path d="M18 5v14"/>',
   queueadd: '<path d="M4 6h11M4 12h11M4 18h7"/><path d="M18 14v6M15 17h6"/>',
@@ -229,10 +231,13 @@ function TrackRow({ t, n, tracks, start, act, toast, select }) {
   // In select mode a click ticks the song instead of playing it.
   const play = () => (select ? select.toggle(t) : act('playnow', { tracks, start }));
   const add = async (e, op, msg) => { e.stopPropagation(); if (await act(op, { tracks: [t] })) toast(msg); };
+  const [armed, arm, disarm] = useArm();
   const toggleOff = async (e) => {
     e.stopPropagation();
+    if (isOff && !armed) { arm(); toast('Click again to delete the downloaded copy'); return; } // two-step delete
+    disarm();
     const err = isOff ? await offDo('remove', { ids: [t.id] }) : await offDo('add', { items: offItems([t]) });
-    if (err) toast(err, 'err'); else toast(isOff ? 'Offline copy removed' : 'Downloading…');
+    if (err) toast(err, 'err'); else toast(isOff ? 'Downloaded copy deleted' : 'Downloading…');
   };
   return html`<div class="track clickable" tabindex="0" onClick=${play} onKeyDown=${(e) => { if (e.key === 'Enter') play(); }}>
     ${select
@@ -240,11 +245,23 @@ function TrackRow({ t, n, tracks, start, act, toast, select }) {
       : html`<span class="num"><span class="n">${n}</span><span class="p"><${Icon} name="play" size=${14} /></span></span>`}
     <div class="grow"><div class="row-title">${t.title}${isOff ? html`<span class="offmark" title="Available offline"><${Icon} name="offlineon" size=${13} /></span>` : ''}</div><div class="sub">${t.artist || ''}${t.duration ? ' · ' + fmt(t.duration) : ''}</div></div>
     ${select ? '' : html`<div class="acts">
-      <${IconBtn} name=${isOff ? 'offlineon' : 'download'} title=${isOff ? 'Remove offline copy' : 'Make available offline'} cls="sm" onClick=${toggleOff} />
+      <${IconBtn} name=${isOff ? 'trash' : 'download'} title=${isOff ? (armed ? 'Click again to delete' : 'Delete downloaded copy') : 'Download for offline'}
+        cls=${'sm' + (isOff ? ' danger' : '') + (armed ? ' armed' : '')} onClick=${toggleOff} />
       <${IconBtn} name="playnext" title="Play next" cls="sm" onClick=${(e) => add(e, 'playnext', 'Playing next')} />
       <${IconBtn} name="queueadd" title="Add to queue" cls="sm" onClick=${(e) => add(e, 'enqueue', 'Added to queue')} />
     </div>`}
   </div>`;
+}
+
+// Two-step confirm for buttons that delete: the first click arms it for 3 s,
+// a second click inside that time does the deletion.
+function useArm() {
+  const [armed, setArmed] = useState(false);
+  const timer = useRef(0);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const arm = () => { setArmed(true); clearTimeout(timer.current); timer.current = setTimeout(() => setArmed(false), 3000); };
+  const disarm = () => { clearTimeout(timer.current); setArmed(false); };
+  return [armed, arm, disarm];
 }
 
 // An album or a playlist: header + Play / Shuffle + secondary icons + tracks.
@@ -256,9 +273,12 @@ function TracksView({ head, load, onBack, act, toast, rev = 0 }) {
   const all = async (op, msg) => { if (await act(op, { tracks })) toast(msg); };
   const off = useOff();
   const allOff = !none && tracks.every((t) => off.ids.has(t.id));
+  const [armed, arm, disarm] = useArm();
   const toggleAllOff = async () => {
+    if (allOff && !armed) { arm(); toast('Click again to delete ' + tracks.length + ' downloaded songs'); return; } // two-step delete
+    disarm();
     const err = allOff ? await offDo('remove', { ids: tracks.map((t) => t.id) }) : await offDo('add', { items: offItems(tracks) });
-    if (err) toast(err, 'err'); else toast(allOff ? 'Offline copies removed' : 'Downloading ' + tracks.length + ' songs…');
+    if (err) toast(err, 'err'); else toast(allOff ? 'Downloaded copies deleted' : 'Downloading ' + tracks.length + ' songs…');
   };
   return html`<main>
     <div class="row" style="margin-bottom:8px"><${IconBtn} name="back" title="Back" onClick=${onBack} /></div>
@@ -270,7 +290,8 @@ function TracksView({ head, load, onBack, act, toast, rev = 0 }) {
       <button class="primary with-icon" disabled=${none} onClick=${() => act('play', { tracks, start: -1 })}><${Icon} name="play" size=${16} /> Play</button>
       <button class="with-icon" disabled=${none} onClick=${async () => { await act('shuffle', { on: true }); act('play', { tracks, start: -1 }); }}><${Icon} name="shuffle" size=${16} /> Shuffle</button>
       <span class="grow"></span>
-      <${IconBtn} name=${allOff ? 'offlineon' : 'download'} title=${allOff ? 'Remove offline copies' : 'Make available offline'} disabled=${none} cls=${allOff ? 'on' : ''} onClick=${toggleAllOff} />
+      <${IconBtn} name=${allOff ? 'trash' : 'download'} title=${allOff ? (armed ? 'Click again to delete' : 'Delete downloaded copies') : 'Download for offline'}
+        disabled=${none} cls=${(allOff ? 'danger' : '') + (armed ? ' armed' : '')} onClick=${toggleAllOff} />
       <${IconBtn} name="playnext" title="Play next" disabled=${none} onClick=${() => all('playnext', 'Playing next')} />
       <${IconBtn} name="queueadd" title="Add to queue" disabled=${none} onClick=${() => all('enqueue', 'Added to queue')} />
     </div>
@@ -302,7 +323,9 @@ function NeedsSync({ sync }) {
 
 const KINDS = [['newest', 'Newest'], ['random', 'Random'], ['alphabeticalByName', 'A–Z'], ['recent', 'Recent']];
 
-function Albums({ act, toast, goSettings }) {
+// Offline (onOffline is called when a live request found the server gone), the
+// list comes from the stored songs by name, so the kind chips are hidden.
+function Albums({ act, toast, goSettings, offline, onOffline }) {
   const [kind, setKind] = useState('newest');
   const [albums, setAlbums] = useState([]);
   const [more, setMore] = useState(false);
@@ -317,6 +340,7 @@ function Albums({ act, toast, goSettings }) {
     setLoading(true);
     const r = await window.albums(kind, reset ? 0 : albums.length);
     setLoading(false);
+    if (r.offline && !offline) return onOffline();
     setError(r.error || '');
     setAlbums(reset ? r.items : albums.concat(r.items));
     setMore(r.items.length >= 30);
@@ -329,6 +353,7 @@ function Albums({ act, toast, goSettings }) {
     const seq = ++searchSeq.current;
     const id = setTimeout(async () => {
       const r = await window.searchLibrary(term);
+      if (r.offline && !offline) onOffline();
       if (seq === searchSeq.current) setResults(r);
     }, 300);
     return () => clearTimeout(id);
@@ -367,8 +392,9 @@ function Albums({ act, toast, goSettings }) {
           ${results.songs.length ? html`<h2>Songs</h2><div class="tracks">${results.songs.map((t, i) => html`<${TrackRow} key=${t.id} t=${t} n=${i + 1} tracks=${results.songs} start=${i} act=${act} toast=${toast} />`)}</div>` : ''}
           ${!results.error && !results.albums.length && !results.songs.length ? html`<div class="empty">No results.</div>` : ''}`
         : html`
-          <div class="chips">${KINDS.map(([k, label]) => html`<button class=${'chip' + (k === kind ? ' active' : '')} onClick=${() => setKind(k)}>${label}</button>`)}</div>
+          ${offline ? '' : html`<div class="chips">${KINDS.map(([k, label]) => html`<button class=${'chip' + (k === kind ? ' active' : '')} onClick=${() => setKind(k)}>${label}</button>`)}</div>`}
           ${error ? html`<div class="banner">${error}</div>` : ''}
+          ${offline && !loading && !error && !albums.length ? html`<div class="empty">Nothing downloaded yet.</div>` : ''}
           ${grid(albums)}
           ${loading ? html`<div class="empty">Loading…</div>` : ''}
           ${!loading && more ? html`<div class="row" style="justify-content:center;margin-top:14px"><button onClick=${() => load(false)}>Load more</button></div>` : ''}`}
@@ -379,8 +405,45 @@ function Albums({ act, toast, goSettings }) {
 
 const SONGS_PAGE = 100;
 
-function Songs({ act, toast, sync, playAll, goSettings }) {
+// Mix: pick genres and/or decades; it plays every matching song in weighted
+// order (favorites and often played songs first more often, recent ones rest).
+function MixPanel({ act, toast, setPs, sync, onClose }) {
+  const [opts, setOpts] = useState(null);
+  const [genres, setGenres] = useState(new Set());
+  const [decades, setDecades] = useState(new Set());
+  const [count, setCount] = useState(null);
+  useEffect(() => { window.mixOptions().then(setOpts); }, [sync.info && sync.info.at]);
+  const filter = () => ({ genres: [...genres], decades: [...decades].map(Number) });
+  useEffect(() => { window.mixCount(filter()).then((r) => setCount(r.error ? null : r.count)); }, [genres, decades]);
+  const flip = (set, setter, v) => { const n = new Set(set); if (n.has(v)) n.delete(v); else n.add(v); setter(n); };
+  const play = async () => {
+    const r = await window.playMix(filter());
+    if (r.error) return toast(r.error, 'err');
+    setPs(r);
+    toast('Playing a mix of ' + count + ' songs');
+    onClose();
+  };
+  const chips = (list, set, setter, label) => html`<div class="chips mix">${list.map((c) => html`
+    <button class=${'chip' + (set.has(c.name) ? ' active' : '')} key=${c.name} aria-pressed=${set.has(c.name)}
+      title=${c.count + ' songs'} onClick=${() => flip(set, setter, c.name)}>${label(c.name)}</button>`)}</div>`;
+  if (!opts) return html`<div class="mixpanel"><div class="sub">Loading…</div></div>`;
+  if (opts.error) return html`<div class="mixpanel"><div class="banner">${opts.error}</div></div>`;
+  return html`<div class="mixpanel">
+    ${opts.needsSync
+      ? html`<div class="sub">Sync the library once to get genres and years for mixes.</div>`
+      : html`
+        ${opts.genres.length ? html`<h3>Genres</h3>${chips(opts.genres, genres, setGenres, (n) => n)}` : ''}
+        ${opts.decades.length ? html`<h3>Decades</h3>${chips(opts.decades, decades, setDecades, (n) => "'" + n.slice(2) + 's')}` : ''}
+        <div class="row" style="margin-top:10px">
+          <span class="sub grow">${genres.size || decades.size ? 'Any selected genre, and any selected decade' : 'Nothing selected: the whole library'}</span>
+          <button class="primary sm with-icon" disabled=${!count} onClick=${play}><${Icon} name="play" size=${14} /> Play ${count == null ? '' : count + ' songs'}</button>
+        </div>`}
+  </div>`;
+}
+
+function Songs({ act, toast, sync, playAll, goSettings, setPs }) {
   const [q, setQ] = useState('');
+  const [mixing, setMixing] = useState(false);
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -458,8 +521,13 @@ function Songs({ act, toast, sync, playAll, goSettings }) {
             <button class="sm" onClick=${() => setSel(new Map(items.map((t) => [t.id, t])))}>Select shown</button>
             <button class="primary sm with-icon" disabled=${!sel.size} onClick=${downloadSelected}><${Icon} name="download" size=${14} /> Download</button>
             <button class="ghost sm" onClick=${stopSelecting}>Cancel</button>
-          </div>` : html`<div class="row" style="margin:12px 0">
-            ${!searching ? html`<button class="primary with-icon" disabled=${!total} onClick=${() => playAll(true)}><${Icon} name="shuffle" size=${16} /> Shuffle all</button>` : ''}
+          </div>` : html`${!searching ? html`<div class="row" style="margin:12px 0 4px">
+            <button class="primary with-icon" disabled=${!total} onClick=${() => playAll(true)}
+              title="Favorites and often played songs come first more often"><${Icon} name="shuffle" size=${16} /> Shuffle all</button>
+              <button class=${'with-icon' + (mixing ? ' on' : '')} disabled=${!total} aria-expanded=${mixing} onClick=${() => setMixing(!mixing)}
+              title="Play by genre and decade"><${Icon} name="mix" size=${16} /> Mix</button>
+          </div>
+          ${mixing ? html`<${MixPanel} act=${act} toast=${toast} setPs=${setPs} sync=${sync} onClose=${() => setMixing(false)} />` : ''}` : ''}<div class="row" style="margin:8px 0 12px">
             <span class="grow sub">${total} songs</span>
             <button class="sm" disabled=${!total} onClick=${() => setSelecting(true)}>Select</button>
             <button class=${'sm with-icon' + (armed ? ' danger' : '')} disabled=${!total} onClick=${downloadAll}
@@ -929,6 +997,23 @@ function App() {
     return true;
   };
 
+  // Offline mode: the server is asked on open and every 30 s while the window
+  // is open. When the answer changes, every view reloads with what is available.
+  const [offline, setOffline] = useState(false);
+  const offlineRef = useRef(false);
+  const goOffline = (on) => {
+    if (on === offlineRef.current) return;
+    offlineRef.current = on;
+    setOffline(on);
+    setLibKey((k) => k + 1);
+  };
+  const checkServer = async () => { const r = await window.serverStatus(); goOffline(!!r.offline); };
+  useEffect(() => {
+    checkServer();
+    const id = setInterval(checkServer, 30000);
+    return () => clearInterval(id);
+  }, []);
+
   // Plays the whole library: this replaces THE queue, it never makes another one.
   const playAll = async (shuffle) => {
     const r = await window.playAll(shuffle);
@@ -969,8 +1054,10 @@ function App() {
   const tabs = [['albums', 'Albums', 'albums'], ['songs', 'Songs', 'songs'], ['playlists', 'Playlists', 'playlists'], ['now', 'Playing', 'playing'], ['settings', 'Settings', 'settings']];
   return html`
     <div class="grip" title="Drag to move" onMouseDown=${() => window.startDrag()}></div>
-    ${tab === 'albums' ? html`<${Albums} key=${libKey} act=${act} toast=${toast} goSettings=${() => setTab('settings')} />` : ''}
-    ${tab === 'songs' ? html`<${Songs} key=${libKey} act=${act} toast=${toast} sync=${sync} playAll=${playAll} goSettings=${() => setTab('settings')} />` : ''}
+    ${offline ? html`<button class="offline-badge" title="Offline: showing downloaded music only. Click to check the server again."
+      aria-label="Offline mode. Check the server again" onClick=${checkServer}><${Icon} name="nowifi" size=${15} /></button>` : ''}
+    ${tab === 'albums' ? html`<${Albums} key=${libKey} act=${act} toast=${toast} goSettings=${() => setTab('settings')} offline=${offline} onOffline=${() => goOffline(true)} />` : ''}
+    ${tab === 'songs' ? html`<${Songs} key=${libKey} act=${act} toast=${toast} sync=${sync} playAll=${playAll} goSettings=${() => setTab('settings')} setPs=${setPs} />` : ''}
     ${tab === 'playlists' ? html`<${Playlists} key=${libKey} act=${act} toast=${toast} sync=${sync} />` : ''}
     ${tab === 'now' ? html`<${NowPlaying} ps=${ps} act=${act} goLibrary=${() => setTab('albums')} setVolume=${setVolume} />` : ''}
     ${tab === 'settings' ? html`<${Settings} onChanged=${() => setLibKey(libKey + 1)} toast=${toast} setVolume=${setVolume} volume=${ps.volume} ap=${ap} setAp=${setAp} />` : ''}

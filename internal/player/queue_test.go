@@ -283,3 +283,75 @@ func TestPlayNowIsNotReshuffled(t *testing.T) {
 		t.Fatalf("queue=%s, upcoming order must survive", ids(q.tracks))
 	}
 }
+
+// artists builds n tracks per artist, grouped (aaa...bbb...), IDs unique.
+func artists(n int, names ...string) []Track {
+	var ts []Track
+	for _, a := range names {
+		for i := 0; i < n; i++ {
+			ts = append(ts, Track{ID: a + string(rune('0'+i)), Artist: a})
+		}
+	}
+	return ts
+}
+
+func sameArtistNeighbours(ts []Track) int {
+	n := 0
+	for i := 1; i < len(ts); i++ {
+		if ts[i].Artist == ts[i-1].Artist {
+			n++
+		}
+	}
+	return n
+}
+
+func TestShuffleSpreadsEachArtistAcrossTheQueue(t *testing.T) {
+	for run := 0; run < 50; run++ {
+		ts := artists(10, "A", "B", "C")
+		shuffleTracks(ts)
+		if len(ts) != 30 {
+			t.Fatal("tracks lost")
+		}
+		seen := map[string]bool{}
+		for _, tr := range ts {
+			seen[tr.ID] = true
+		}
+		if len(seen) != 30 {
+			t.Fatalf("duplicated tracks: %v", ids(ts))
+		}
+		// A plain shuffle leaves about 9 same-artist neighbours here; spread keeps it at 0 or 1.
+		if got := sameArtistNeighbours(ts); got > 1 {
+			t.Fatalf("run %d: %d same-artist neighbours", run, got)
+		}
+	}
+}
+
+func TestShuffleKeepsTracksWithoutArtistApart(t *testing.T) {
+	ts := mk("abcdefgh") // no artist: each is its own group, nothing is lost
+	shuffleTracks(ts)
+	if len(ts) != 8 {
+		t.Fatal("tracks lost")
+	}
+}
+
+func TestOrderedStartKeepsTheGivenOrderEvenWithShuffleOn(t *testing.T) {
+	var q queue
+	q.shuffle = true
+	q.set(mk("abcdef"), Ordered)
+	if ids(q.tracks) != "abcdef" || q.idx != 0 {
+		t.Fatalf("already-shuffled list must play as given: %s idx=%d", ids(q.tracks), q.idx)
+	}
+}
+
+func TestSeparateArtistsBreaksRunsAndKeepsEveryTrack(t *testing.T) {
+	ts := []Track{{ID: "1", Artist: "A"}, {ID: "2", Artist: "A"}, {ID: "3", Artist: "B"}, {ID: "4", Artist: "C"}, {ID: "5", Artist: "B"}}
+	SeparateArtists(ts)
+	if ids(ts) != "13245" || sameArtistNeighbours(ts) != 0 {
+		t.Fatalf("got %s", ids(ts))
+	}
+	one := []Track{{ID: "1", Artist: "A"}, {ID: "2", Artist: "A"}}
+	SeparateArtists(one) // nothing to swap with: left as is
+	if ids(one) != "12" {
+		t.Fatalf("got %s", ids(one))
+	}
+}

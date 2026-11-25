@@ -253,3 +253,23 @@ func TestManagerCancelDropsQueueAndKeepsWhatIsStored(t *testing.T) {
 		t.Fatal("downloads must work again after a cancel")
 	}
 }
+
+func TestClearAlsoRemovesTheCovers(t *testing.T) {
+	dir := t.TempDir()
+	st, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(CoversDir(dir), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(CoversDir(dir), "al-1.jpg"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(CoversDir(dir)); !os.IsNotExist(err) {
+		t.Fatalf("covers folder still there: %v", err)
+	}
+}

@@ -37,8 +37,9 @@ type trackView struct {
 }
 
 type albumsResult struct {
-	Items []albumView `json:"items"`
-	Error string      `json:"error"`
+	Items   []albumView `json:"items"`
+	Offline bool        `json:"offline"` // answered from the local copy
+	Error   string      `json:"error"`
 }
 
 type tracksResult struct {
@@ -47,9 +48,10 @@ type tracksResult struct {
 }
 
 type searchResult struct {
-	Albums []albumView `json:"albums"`
-	Songs  []trackView `json:"songs"`
-	Error  string      `json:"error"`
+	Albums  []albumView `json:"albums"`
+	Songs   []trackView `json:"songs"`
+	Offline bool        `json:"offline"` // answered from the local copy
+	Error   string      `json:"error"`
 }
 
 // stateResult is the light player state polled every second.
@@ -123,7 +125,11 @@ func songTracks(c *subsonic.Client, ss []subsonic.Song) []trackView {
 }
 
 // Albums lists albums by kind (newest, random, alphabeticalByName, recent), paginated.
+// Offline, it lists the stored albums by name whatever the kind.
 func (s *service) Albums(kind string, offset int) albumsResult {
+	if s.offline.Load() {
+		return s.localAlbums(offset)
+	}
 	c, err := s.client()
 	if err != nil {
 		return albumsResult{Items: []albumView{}, Error: err.Error()}
@@ -132,6 +138,9 @@ func (s *service) Albums(kind string, offset int) albumsResult {
 	defer cancel()
 	as, err := c.AlbumList(ctx, kind, pageSize, offset)
 	if err != nil {
+		if s.wentOffline(c) {
+			return s.localAlbums(offset)
+		}
 		return albumsResult{Items: []albumView{}, Error: err.Error()}
 	}
 	return albumsResult{Items: albumViews(c, as)}
@@ -139,6 +148,9 @@ func (s *service) Albums(kind string, offset int) albumsResult {
 
 // AlbumTracks lists the songs of an album.
 func (s *service) AlbumTracks(id string) tracksResult {
+	if s.offline.Load() {
+		return s.localAlbumTracks(id)
+	}
 	c, err := s.client()
 	if err != nil {
 		return tracksResult{Items: []trackView{}, Error: err.Error()}
@@ -147,6 +159,9 @@ func (s *service) AlbumTracks(id string) tracksResult {
 	defer cancel()
 	ss, err := c.AlbumSongs(ctx, id)
 	if err != nil {
+		if s.wentOffline(c) {
+			return s.localAlbumTracks(id)
+		}
 		return tracksResult{Items: []trackView{}, Error: err.Error()}
 	}
 	return tracksResult{Items: songTracks(c, ss)}
@@ -154,6 +169,9 @@ func (s *service) AlbumTracks(id string) tracksResult {
 
 // SearchLibrary looks for albums and songs.
 func (s *service) SearchLibrary(q string) searchResult {
+	if s.offline.Load() {
+		return s.localSearch(q)
+	}
 	empty := searchResult{Albums: []albumView{}, Songs: []trackView{}}
 	c, err := s.client()
 	if err != nil {
@@ -164,6 +182,9 @@ func (s *service) SearchLibrary(q string) searchResult {
 	defer cancel()
 	res, err := c.Search(ctx, q)
 	if err != nil {
+		if s.wentOffline(c) {
+			return s.localSearch(q)
+		}
 		empty.Error = err.Error()
 		return empty
 	}
@@ -177,10 +198,8 @@ func (s *service) stateView(st player.State) stateResult {
 	}
 	if st.Current != nil {
 		tv := trackView{Track: *st.Current}
-		if c, err := s.client(); err == nil {
-			tv.Cover = c.CoverURL(st.Current.CoverArt, coverSmall)
-			out.Cover = c.CoverURL(st.Current.CoverArt, coverBig)
-		}
+		tv.Cover = s.coverURL(st.Current.CoverArt, coverSmall)
+		out.Cover = s.coverURL(st.Current.CoverArt, coverBig)
 		out.Current = &tv
 	}
 	return out
@@ -212,13 +231,9 @@ func (s *service) PlayerQueue(from, n int) queueResult {
 		empty.Error = err.Error()
 		return empty
 	}
-	c, cerr := s.client()
 	out := queueResult{Items: make([]trackView, 0, len(page.Tracks)), From: page.From, Total: page.Total}
 	for _, t := range page.Tracks {
-		tv := trackView{Track: t}
-		if cerr == nil {
-			tv.Cover = c.CoverURL(t.CoverArt, coverSmall)
-		}
+		tv := trackView{Track: t, Cover: s.coverURL(t.CoverArt, coverSmall)}
 		out.Items = append(out.Items, tv)
 	}
 	return out

@@ -77,6 +77,7 @@ func TestCoverURLsStayStableAcrossCalls(t *testing.T) {
 type ctl struct {
 	st    player.State
 	queue []player.Track
+	start int // start index of the last Play
 }
 
 func (c *ctl) State() player.State {
@@ -99,6 +100,7 @@ func (c *ctl) TogglePause() error { return nil }
 func (c *ctl) Next()              {}
 func (c *ctl) Prev()              {}
 func (c *ctl) Play(ts []player.Track, start int) error {
+	c.start = start
 	if start < 0 || start >= len(ts) { // the real queue: "any start" is a random track with shuffle, else the first
 		start = 0
 	}

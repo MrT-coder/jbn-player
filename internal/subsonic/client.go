@@ -58,6 +58,20 @@ type Song struct {
 	CoverArt string `json:"coverArt"`
 	Duration int    `json:"duration"`
 	Track    int    `json:"track"`
+
+	// Used by the weighted shuffle and the genre/decade mixes.
+	Genre      string  `json:"genre"`  // Subsonic: one genre
+	Genres     []Named `json:"genres"` // OpenSubsonic: every genre
+	Year       int     `json:"year"`
+	PlayCount  int     `json:"playCount"`  // plays by this user
+	Starred    string  `json:"starred"`    // when it was starred, empty if not
+	UserRating int     `json:"userRating"` // 1-5, 0 = not rated
+	Played     string  `json:"played"`     // OpenSubsonic: last play time
+}
+
+// Named is an OpenSubsonic {"name": ...} item, such as a genre.
+type Named struct {
+	Name string `json:"name"`
 }
 
 // Playlist is a server-side playlist.
