@@ -770,6 +770,71 @@ function OfflineSettings({ toast }) {
   </div>`;
 }
 
+// The global shortcut that opens this window (the player process registers it).
+// While a new one is recorded the player releases the current one, so pressing
+// it reaches this page instead of closing the window.
+const MOD_KEYS = new Set([16, 17, 18, 91, 92]); // Shift, Ctrl, Alt, Win
+function comboOf(e) {
+  const k = e.keyCode; // the Windows virtual-key code, which is what RegisterHotKey takes
+  let key = '';
+  if ((k >= 65 && k <= 90) || (k >= 48 && k <= 57)) key = String.fromCharCode(k);
+  else if (k >= 112 && k <= 123) key = 'F' + (k - 111);
+  if (!key) return { error: 'Use a letter, a digit or F1-F12' };
+  if (!e.ctrlKey && !e.altKey) return { error: 'Hold Ctrl or Alt too' };
+  return { combo: [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', key].filter(Boolean).join('+') };
+}
+
+function ShortcutSettings({ toast }) {
+  const [st, setSt] = useState(null);
+  const [rec, setRec] = useState(false);
+  const [hint, setHint] = useState('');
+  const btn = useRef(null);
+  useEffect(() => { window.getHotkey().then(setSt); }, []);
+  useEffect(() => { if (rec && btn.current) btn.current.focus(); }, [rec]);
+  if (!st) return html`<div class="card" style="margin-bottom:16px"><div class="sub">Loading shortcut…</div></div>`;
+
+  const start = async () => { setHint(''); setRec(true); await window.hotkeyDo('suspend', ''); };
+  const stop = async () => { setRec(false); setHint(''); setSt(await window.hotkeyDo('resume', '')); };
+  const save = async (value, done) => {
+    const r = await window.hotkeyDo('set', value);
+    if (r.error) { setHint(r.error); return false; }
+    setSt(r); setRec(false); setHint(''); toast(done);
+    return true;
+  };
+  const onKey = async (e) => {
+    e.preventDefault();
+    e.stopPropagation(); // Escape must not close the window here
+    if (e.keyCode === 27) return stop();
+    if (MOD_KEYS.has(e.keyCode)) return;
+    const c = comboOf(e);
+    if (c.error) return setHint(c.error);
+    await save(c.combo, 'Shortcut set to ' + c.combo);
+  };
+  const reset = () => save(st.default, 'Shortcut set to ' + st.default);
+  const turnOff = () => save('', 'Shortcut turned off');
+
+  const taken = st.hotkey && !st.active && !rec;
+  return html`<div class="card" style="margin-bottom:16px">
+    <h2 style="margin-top:0">Shortcut</h2>
+    <div class="sub" style="white-space:normal">Opens and closes this window from anywhere, even inside a game.</div>
+    <div class="row" style="margin-top:8px">
+      ${rec
+        ? html`<button ref=${btn} class="kbd rec grow" onKeyDown=${onKey} onBlur=${stop}>Press the new shortcut…</button>`
+        : html`<span class="kbd grow">${st.hotkey || 'Off'}</span>`}
+      ${rec
+        ? html`<button class="ghost sm" onMouseDown=${(e) => e.preventDefault()} onClick=${stop}>Cancel</button>`
+        : html`<button class="sm" onClick=${start}>Change</button>`}
+    </div>
+    ${hint ? html`<div class="banner" style="margin:8px 0 0">${hint}</div>` : ''}
+    ${taken ? html`<div class="banner" style="margin:8px 0 0">${st.hotkey} is in use by another application. Pick another one.</div>` : ''}
+    ${!rec ? html`<div class="row" style="margin-top:6px">
+      ${st.hotkey !== st.default ? html`<button class="ghost sm" onClick=${reset}>Use ${st.default}</button>` : ''}
+      ${st.hotkey ? html`<button class="ghost sm" onClick=${turnOff}>Turn off</button>` : ''}
+    </div>` : ''}
+    <div class="sub" style="white-space:normal;margin-top:6px">Windows refuses a shortcut another app already registered, and you will see why. Shortcuts a game uses only inside itself cannot be detected: this one takes the keys first, so pick one the game does not use.</div>
+  </div>`;
+}
+
 function Settings({ onChanged, toast, setVolume, volume, ap, setAp }) {
   const [list, setList] = useState(null);
   const [form, setForm] = useState(null); // null = list, {} = new, server = edit
@@ -793,6 +858,7 @@ function Settings({ onChanged, toast, setVolume, volume, ap, setAp }) {
   return html`<main>
     <${AppearanceSettings} ap=${ap} setAp=${setAp} />
     <${AudioSettings} toast=${toast} setVolume=${setVolume} volume=${volume} />
+    <${ShortcutSettings} toast=${toast} />
     <${OfflineSettings} toast=${toast} />
     <${SongkeySettings} toast=${toast} />
     <div class="row between" style="margin-bottom:12px"><h2 style="margin:0">Servers</h2><button class="primary" onClick=${() => setForm({})}>+ Add server</button></div>

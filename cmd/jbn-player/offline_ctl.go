@@ -15,9 +15,11 @@ import (
 	"jbnplayer/internal/subsonic"
 )
 
-// controller is what the island window controls: the player plus the offline copies.
+// controller is what the island window controls: the player, the offline
+// copies and the global shortcut.
 type controller struct {
 	*player.Player
+	*hotkeyCtl
 	off *offlineCtl
 }
 
