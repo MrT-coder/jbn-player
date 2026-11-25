@@ -99,25 +99,31 @@ func main() {
 	defer p.Close()
 	p.OnTrack(func(t player.Track) { tray.SetTooltip(fmt.Sprintf("%s - %s", t.Artist, t.Title)) })
 
-	// Let the island window (another process) control this player.
-	if ipcPath, err := ipc.DefaultPath(); err == nil {
-		if stopIPC, err := ipc.Serve(ipcPath, controller{Player: p, off: off}); err == nil {
-			defer stopIPC()
-		} else {
-			log.Println("ipc:", err)
-		}
-	}
-
 	// The window may change the servers and the accent color: pick both up when it closes.
 	appearancePath, _ := settings.AppearancePath()
 	accent := func() string {
 		a, _ := settings.LoadAppearance(appearancePath) // defaults if missing or corrupt
 		return a.Accent
 	}
+	var hk *hotkeyCtl
 	isl := &islandCtl{exe: exe, onExit: func() {
 		reload()
 		tray.SetAccent(accent())
+		hk.HotkeyResume() // in case the window closed while recording a new shortcut
 	}}
+
+	// A global shortcut toggles the window too (in a game the tray cannot be clicked).
+	hk = startHotkey(isl.toggle)
+	defer hk.mgr.Stop()
+
+	// Let the island window (another process) control this player.
+	if ipcPath, err := ipc.DefaultPath(); err == nil {
+		if stopIPC, err := ipc.Serve(ipcPath, controller{Player: p, hotkeyCtl: hk, off: off}); err == nil {
+			defer stopIPC()
+		} else {
+			log.Println("ipc:", err)
+		}
+	}
 
 	// Until the island has a library UI, "Play / Pause" on an empty queue starts a random album.
 	startRandomAlbum := func() error {

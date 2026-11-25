@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"jbnplayer/internal/hotkey"
 	"jbnplayer/internal/offline"
 	"jbnplayer/internal/player"
 	"jbnplayer/internal/settings"
@@ -65,6 +66,15 @@ type Offline interface {
 	OfflineClear() error
 	OfflineCancel()                 // stop the downloads, keep what is stored
 	OfflineSetDir(dir string) error // "" = default folder
+}
+
+// Hotkeys is what the tray process exposes for the global shortcut that opens
+// the window. A Controller that also implements it gets the /hotkey endpoints.
+type Hotkeys interface {
+	HotkeyStatus() hotkey.Status
+	HotkeySet(s string) error // "" = off; fails when another app has it
+	HotkeySuspend()           // release it while the window records a new one
+	HotkeyResume()
 }
 
 // Request is the JSON body of the mutating calls.
@@ -235,6 +245,48 @@ func Serve(path string, c Controller) (stop func(), err error) {
 		postOffline("clear", func(Request) error { return o.OfflineClear() })
 		postOffline("cancel", func(Request) error { o.OfflineCancel(); return nil })
 		postOffline("setdir", func(r Request) error { return o.OfflineSetDir(r.Name) })
+	}
+
+	// The global shortcut: registered by this process, chosen in the window.
+	replyHotkey := func(w http.ResponseWriter, h Hotkeys, err error) {
+		w.Header().Set("Content-Type", "application/json")
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(h.HotkeyStatus())
+	}
+	if h, ok := c.(Hotkeys); !ok {
+		unsupported := func(w http.ResponseWriter, r *http.Request) {
+			replyHotkey(w, nil, errors.New("the shortcut is not available"))
+		}
+		mux.HandleFunc("GET /hotkey", unsupported)
+		mux.HandleFunc("POST /hotkey/{op}", unsupported)
+	} else {
+		mux.HandleFunc("GET /hotkey", func(w http.ResponseWriter, r *http.Request) { replyHotkey(w, h, nil) })
+		mux.HandleFunc("POST /hotkey/{op}", func(w http.ResponseWriter, r *http.Request) {
+			var req Request
+			r.Body = http.MaxBytesReader(w, r.Body, maxBody)
+			if r.ContentLength != 0 {
+				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+					replyHotkey(w, h, fmt.Errorf("bad request: %w", err))
+					return
+				}
+			}
+			switch r.PathValue("op") {
+			case "set":
+				replyHotkey(w, h, h.HotkeySet(req.Name))
+			case "suspend":
+				h.HotkeySuspend()
+				replyHotkey(w, h, nil)
+			case "resume":
+				h.HotkeyResume()
+				replyHotkey(w, h, nil)
+			default:
+				http.NotFound(w, r)
+			}
+		})
 	}
 
 	auth := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -432,6 +484,49 @@ func (c *Client) offline(method, op string, body *Request) (offline.Status, erro
 	var s offline.Status
 	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
 		return offline.Status{}, err
+	}
+	return s, nil
+}
+
+// Hotkey reads the global shortcut and whether it is active.
+func (c *Client) Hotkey() (hotkey.Status, error) { return c.hotkey(http.MethodGet, "hotkey", nil) }
+
+// HotkeyDo runs a shortcut op (set with the shortcut in r.Name, suspend,
+// resume) and returns the new status.
+func (c *Client) HotkeyDo(op string, r Request) (hotkey.Status, error) {
+	return c.hotkey(http.MethodPost, "hotkey/"+op, &r)
+}
+
+func (c *Client) hotkey(method, op string, body *Request) (hotkey.Status, error) {
+	rd := strings.NewReader("")
+	if body != nil {
+		b, _ := json.Marshal(body)
+		rd = strings.NewReader(string(b))
+	}
+	req, err := http.NewRequest(method, c.base+"/"+op, rd)
+	if err != nil {
+		return hotkey.Status{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return hotkey.Status{}, errors.New("player is not running")
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		var e struct {
+			Error string `json:"error"`
+		}
+		_ = json.NewDecoder(resp.Body).Decode(&e)
+		if e.Error == "" {
+			e.Error = resp.Status
+		}
+		return hotkey.Status{}, errors.New(e.Error)
+	}
+	var s hotkey.Status
+	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
+		return hotkey.Status{}, err
 	}
 	return s, nil
 }
